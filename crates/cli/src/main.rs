@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use substrate_kernel::observation::{self, Observation};
+use substrate_kernel::service;
 use substrate_kernel::store;
 
 const USAGE: &str = "\
@@ -19,6 +20,7 @@ usage:
 commands:
   observe        record an observation (the only truth)
   observations   list recorded observations
+  service        report the service signal (Law I)
 
 options:
   --data-dir <dir>   data directory (default: substrate_data)
@@ -39,6 +41,7 @@ fn main() -> ExitCode {
         }
         Some("observe") => cmd_observe(rest),
         Some("observations") => cmd_observations(rest),
+        Some("service") => cmd_service(rest),
         Some(cmd) => {
             eprintln!("substrate: unknown command '{cmd}'\n\n{USAGE}");
             ExitCode::FAILURE
@@ -111,6 +114,33 @@ fn cmd_observations(args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn cmd_service(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let obs = match observation::load(&dir) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("service: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let s = service::service_signal(&obs);
+    print!(
+        "service signal {:.2} ({} of {} observations touch the served",
+        s.measure, s.served_facing, s.total
+    );
+    match &s.exemplar {
+        Some(e) => println!("; e.g. {e})"),
+        None => println!(")"),
+    }
+    if s.served_facing == 0 {
+        println!(
+            "  no served-facing activity observed — continuation unjustified by service (Law I)"
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 /// Parse `--key value` and `--key=value` flags into a map. Bare trailing `--key`

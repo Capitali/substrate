@@ -11,4 +11,5 @@
 #![forbid(unsafe_code)]
 
 pub mod observation;
+pub mod service;
 pub mod store;
