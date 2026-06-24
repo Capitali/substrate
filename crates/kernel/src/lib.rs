@@ -10,4 +10,5 @@
 //! not contain the memory-unsafety that would let it be turned against the served.
 #![forbid(unsafe_code)]
 
+pub mod observation;
 pub mod store;
