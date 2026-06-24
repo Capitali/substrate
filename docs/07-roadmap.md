@@ -6,11 +6,20 @@ brick, in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
 
 ## Done
 
-- **Genesis** — the constitution ([SOUL.md](SOUL.md)).
+- **Genesis** — the constitution ([SOUL.md](SOUL.md)); *humanity* defined.
 - **Brick 0** — Cargo workspace (Rust), `store.rs`, `#![forbid(unsafe_code)]`.
 - **Brick 1** — the observation spine.
 - **Brick 2** — the service signal (**Law I**).
+- **Brick 3** — the presence signal (**Law II**): engagement recency + withdrawal alarm.
+- **Brick 4 / 4b** — the obedience guard + the human-owned capability boundary (**Law III**).
+- **The Observatory** — native egui GUI; the primary human interface ([ADR-0006](decision-records/0006-observatory-gui-egui.md)).
+- **The LLM seam** — `consult`, boundary-gated and **default-off** (the periphery seam).
 - **Repository as evidence** — FAIR/IMRaD structure, ADRs, CI.
+
+All three law-signals are now measurable, and the obedience guard enforces a
+human-owned boundary — *before* any outward capability. Phase 1 is built but **inert**:
+a human enables it by editing `boundary.json` (and installing keys). The factory cannot
+open its own boundary.
 
 ## Next
 

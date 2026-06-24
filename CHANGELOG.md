@@ -20,6 +20,9 @@ this file is the human-readable summary.
 - **Brick 4 — obedience guard (Law III)**: `guard::evaluate()` returns allow /
   seek-consent / refuse with rationale, enforcing the capability boundary (fail-closed)
   and seeking consent for high-consequence actions.
+- **LLM seam (default-off)**: CLI `consult`, gated by the guard — refused (no side
+  effects) under the closed boundary; only a human opens it. Reference adapter
+  `llm/call_llm.sh` (no secrets) + `key.env.example` carried from v1; `*.env` ignored.
 - **Human-owned capability boundary** ([docs/boundaries.md](docs/boundaries.md),
   [ADR-0005](docs/decision-records/0005-human-owned-capability-boundary.md)): the
   factory's reach is bounded by a policy only the human writes; the factory may narrow
