@@ -2,3 +2,6 @@
 **/*.rs.bk
 # Runtime state — derived/rebuildable, not source.
 /substrate_data
+# Secrets — never committed (the *.example templates are fine).
+*.env
+!*.env.example
