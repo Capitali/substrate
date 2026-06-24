@@ -1,0 +1,20 @@
+# Substrate v2 — telos-first factory. See docs/SOUL.md and docs/ARCHITECTURE.md.
+#
+# A small workspace expressing the hybrid architecture: a thin, deterministic
+# kernel library + a thin CLI shell. Behavior evolves in the periphery (generated
+# artifacts / data / the LLM seam), so the compiled core changes rarely.
+[workspace]
+resolver = "2"
+members = ["crates/kernel", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Ian Schlueter <ian@river.io>"]
+
+# Dependencies are kept deliberately minimal — a small, legible trust surface is
+# part of the Law III commitment (it cannot be turned against the served).
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+substrate-kernel = { path = "crates/kernel" }

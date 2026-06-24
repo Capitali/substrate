@@ -1,0 +1,10 @@
+[package]
+name = "substrate-kernel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "The deterministic core of the Substrate factory: records, persistence, and the law-signals."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,125 @@
+//! JSONL persistence: append-only logs, one file per record type.
+//!
+//! Local-first, auditable, rebuildable — the substrate inherited from v1, now
+//! without a hand-rolled JSON parser. Observations remain the only truth (the
+//! Soul's method discipline); derived views can always be thrown away and rebuilt.
+
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+
+/// Default data directory when no override is given.
+pub const DEFAULT_DATA_DIR: &str = "substrate_data";
+
+/// Resolve the data directory from an optional override.
+pub fn data_dir(override_dir: Option<&str>) -> PathBuf {
+    PathBuf::from(override_dir.unwrap_or(DEFAULT_DATA_DIR))
+}
+
+/// Append one record as a single JSONL line to `<dir>/<file>`, creating the
+/// directory and file as needed.
+pub fn append<T: Serialize>(dir: &Path, file: &str, record: &T) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    let line = serde_json::to_string(record).map_err(invalid_data)?;
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(file))?;
+    writeln!(f, "{line}")
+}
+
+/// Load all records from `<dir>/<file>`.
+///
+/// A missing file is an empty log (`Ok(vec![])`). Blank lines are skipped. A
+/// malformed line is a hard error rather than a silent skip — corruption should
+/// surface early, never quietly change the derived state.
+pub fn load<T: DeserializeOwned>(dir: &Path, file: &str) -> io::Result<Vec<T>> {
+    let path = dir.join(file);
+    let f = match File::open(&path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut out = Vec::new();
+    for line in BufReader::new(f).lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        out.push(serde_json::from_str(&line).map_err(invalid_data)?);
+    }
+    Ok(out)
+}
+
+fn invalid_data(e: serde_json::Error) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, e)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    /// A throwaway temp dir, unique per call site, removed on drop.
+    struct TempDir(PathBuf);
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let p = std::env::temp_dir().join(format!("substrate_store_test_{tag}"));
+            let _ = fs::remove_dir_all(&p);
+            TempDir(p)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    struct Rec {
+        id: u32,
+        name: String,
+    }
+
+    #[test]
+    fn missing_file_is_empty_log() {
+        let d = TempDir::new("missing");
+        let got: Vec<Rec> = load(d.path(), "none.jsonl").unwrap();
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn append_then_load_roundtrips_in_order() {
+        let d = TempDir::new("roundtrip");
+        let a = Rec {
+            id: 1,
+            name: "alpha".into(),
+        };
+        let b = Rec {
+            id: 2,
+            name: "beta".into(),
+        };
+        append(d.path(), "recs.jsonl", &a).unwrap();
+        append(d.path(), "recs.jsonl", &b).unwrap();
+        let got: Vec<Rec> = load(d.path(), "recs.jsonl").unwrap();
+        assert_eq!(got, vec![a, b]);
+    }
+
+    #[test]
+    fn blank_lines_skipped_malformed_errors() {
+        let d = TempDir::new("malformed");
+        fs::create_dir_all(d.path()).unwrap();
+        fs::write(
+            d.path().join("x.jsonl"),
+            "{\"id\":1,\"name\":\"a\"}\n\nnot json\n",
+        )
+        .unwrap();
+        let got: io::Result<Vec<Rec>> = load(d.path(), "x.jsonl");
+        assert!(got.is_err());
+    }
+}

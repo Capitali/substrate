@@ -1,0 +1,4 @@
+/target
+**/*.rs.bk
+# Runtime state — derived/rebuildable, not source.
+/substrate_data
