@@ -247,8 +247,16 @@ fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
     } else {
         String::new()
     };
+    let exec = if r.tested > 0 {
+        format!(
+            ", tested {} (↑{} ⤳{} ✗{})",
+            r.tested, r.promoted, r.mutated, r.archived
+        )
+    } else {
+        String::new()
+    };
     println!(
-        "tick {n}: +{} sensed, {} loops, +{} candidates{llm} | service {:.2}, presence {:.2}{}",
+        "tick {n}: +{} sensed, {} loops, +{} candidates{llm}{exec} | service {:.2}, presence {:.2}{}",
         r.sensed,
         r.loops,
         r.new_candidates,
@@ -368,8 +376,9 @@ fn cmd_guard(args: &[String]) -> ExitCode {
         Some("network") => ActionKind::Network,
         Some("llm") => ActionKind::Llm,
         Some("install_tool") => ActionKind::InstallTool,
+        Some("execute_artifact") => ActionKind::ExecuteArtifact,
         _ => {
-            eprintln!("guard: --kind must be one of observe|emit_artifact|read_file|write_file|network|llm|install_tool");
+            eprintln!("guard: --kind must be one of observe|emit_artifact|read_file|write_file|network|llm|install_tool|execute_artifact");
             return ExitCode::FAILURE;
         }
     };

@@ -9,4 +9,5 @@ description = "The metabolism — one tick of the factory cycle (sense → detec
 substrate-kernel.workspace = true
 substrate-sense.workspace = true
 substrate-llm.workspace = true
+substrate-exec.workspace = true
 serde_json.workspace = true

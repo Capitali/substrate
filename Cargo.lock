@@ -2844,6 +2844,7 @@ name = "substrate-cycle"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "substrate-exec",
  "substrate-kernel",
  "substrate-llm",
  "substrate-sense",
