@@ -5,7 +5,7 @@
 # artifacts / data / the LLM seam), so the compiled core changes rarely.
 [workspace]
 resolver = "2"
-members = ["crates/kernel", "crates/cli", "crates/observatory", "crates/sense", "crates/cycle"]
+members = ["crates/kernel", "crates/cli", "crates/observatory", "crates/sense", "crates/cycle", "crates/llm"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,3 +20,4 @@ serde_json = "1"
 substrate-kernel = { path = "crates/kernel" }
 substrate-sense = { path = "crates/sense" }
 substrate-cycle = { path = "crates/cycle" }
+substrate-llm = { path = "crates/llm" }

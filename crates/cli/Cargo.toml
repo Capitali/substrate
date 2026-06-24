@@ -13,3 +13,4 @@ path = "src/main.rs"
 substrate-kernel.workspace = true
 substrate-sense.workspace = true
 substrate-cycle.workspace = true
+substrate-llm.workspace = true

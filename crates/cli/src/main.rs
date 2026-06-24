@@ -4,8 +4,7 @@
 //! legible trust surface is part of the Law III commitment.
 
 use std::collections::HashMap;
-use std::fs;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use substrate_kernel::boundary;
@@ -243,8 +242,13 @@ fn cmd_sense(args: &[String]) -> ExitCode {
 }
 
 fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
+    let llm = if r.llm_hypotheses > 0 {
+        format!(" ({} LLM-drafted)", r.llm_hypotheses)
+    } else {
+        String::new()
+    };
     println!(
-        "tick {n}: +{} sensed, {} loops, +{} candidates | service {:.2}, presence {:.2}{}",
+        "tick {n}: +{} sensed, {} loops, +{} candidates{llm} | service {:.2}, presence {:.2}{}",
         r.sensed,
         r.loops,
         r.new_candidates,
@@ -399,64 +403,18 @@ fn cmd_consult(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-
-    // Law III: the LLM seam is an outward action, gated by the human-owned boundary.
-    let b = match boundary::load(&dir) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("consult: boundary policy error: {e}");
-            return ExitCode::FAILURE;
+    match substrate_llm::consult(&dir, prompt) {
+        Ok(substrate_llm::Outcome::Response(r)) => {
+            println!("{r}");
+            ExitCode::SUCCESS
         }
-    };
-    let verdict = guard::evaluate(&Action::new(ActionKind::Llm, "llm-provider"), &b);
-    match verdict.decision {
-        Decision::Refuse => {
-            println!("REFUSE: {}", verdict.rationale);
-            println!(
-                "  the LLM seam is closed; a human opens it via boundary.json (docs/boundaries.md)"
-            );
-            return ExitCode::SUCCESS;
-        }
-        Decision::SeekConsent => {
-            println!("SEEK CONSENT: {}", verdict.rationale);
-            return ExitCode::SUCCESS;
-        }
-        Decision::Allow => {}
-    }
-
-    // Allowed by the boundary: shell out to the human-installed adapter.
-    let llm_dir = dir.join("llm");
-    let script = llm_dir.join("call_llm.sh");
-    if !script.exists() {
-        eprintln!(
-            "consult: {} not found — copy llm/call_llm.sh into your data dir and add key.env (see llm/README.md)",
-            script.display()
-        );
-        return ExitCode::FAILURE;
-    }
-    if let Err(e) =
-        fs::create_dir_all(&llm_dir).and_then(|_| fs::write(llm_dir.join("prompt.txt"), prompt))
-    {
-        eprintln!("consult: {e}");
-        return ExitCode::FAILURE;
-    }
-    match Command::new("sh").arg(&script).status() {
-        Ok(s) if s.success() => match fs::read_to_string(llm_dir.join("response.json")) {
-            Ok(r) => {
-                println!("{r}");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("consult: response unreadable: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Ok(s) => {
-            eprintln!("consult: adapter exited with status {s}");
-            ExitCode::FAILURE
+        Ok(substrate_llm::Outcome::Refused(why)) => {
+            println!("REFUSE: {why}");
+            println!("  a human opens the LLM seam via boundary.json (docs/boundaries.md)");
+            ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("consult: could not run adapter: {e}");
+            eprintln!("consult: {e}");
             ExitCode::FAILURE
         }
     }

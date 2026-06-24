@@ -35,6 +35,8 @@ pub struct TickReport {
     pub loops: usize,
     /// Candidates generated this tick (one per newly-covered loop).
     pub new_candidates: usize,
+    /// Of those candidates, how many got an LLM-drafted hypothesis.
+    pub llm_hypotheses: usize,
     /// Service signal (Law I), 0..1.
     pub service: f64,
     /// Presence signal (Law II), 0..1.
@@ -43,14 +45,51 @@ pub struct TickReport {
     pub presence_withdrawn: bool,
 }
 
+/// Ask the LLM (boundary-gated) for a one-line hypothesis addressing a loop.
+/// Returns None on refusal, error, or unparseable output (caller falls back to the
+/// deterministic hypothesis). The model proposes; it does not decide.
+fn draft_hypothesis(dir: &Path, lp: &loops::Loop) -> Option<String> {
+    let triple = lp
+        .description
+        .strip_prefix("Repeated: ")
+        .unwrap_or(&lp.description);
+    let prompt = format!(
+        "A recurring pattern (loop) was observed in the environment: \"{triple}\" \
+         (actor|action|object). In ONE sentence, propose a hypothesis for how to serve \
+         the people involved by reducing this loop's friction — honoring that humanity \
+         is served, not managed, obeyed, or optimized away. \
+         Reply ONLY as compact JSON: {{\"hypothesis\":\"...\"}}."
+    );
+    match substrate_llm::consult(dir, &prompt) {
+        Ok(substrate_llm::Outcome::Response(json)) => {
+            serde_json::from_str::<serde_json::Value>(&json)
+                .ok()
+                .and_then(|v| {
+                    v.get("hypothesis")
+                        .and_then(|h| h.as_str())
+                        .map(str::to_string)
+                })
+                .filter(|s| !s.trim().is_empty())
+        }
+        _ => None,
+    }
+}
+
 fn triple(o: &observation::Observation) -> (String, String, String) {
     (o.actor.clone(), o.action.clone(), o.object.clone())
 }
 
-/// Run one tick over the data dir. `allow_connectivity` must reflect the obedience
-/// guard's verdict for a Network action (the caller computes it from the boundary);
-/// all other steps are local perception and internal work.
-pub fn tick(dir: &Path, now: i64, allow_connectivity: bool) -> io::Result<TickReport> {
+/// Run one tick over the data dir. `allow_connectivity` and `allow_llm` must reflect
+/// the obedience guard's verdicts (the caller computes them from the boundary; see
+/// [`tick_gated`]); all other steps are local perception and internal work. When
+/// `allow_llm` is false the cycle never reaches the LLM — candidate hypotheses are
+/// deterministic, and tests stay offline.
+pub fn tick(
+    dir: &Path,
+    now: i64,
+    allow_connectivity: bool,
+    allow_llm: bool,
+) -> io::Result<TickReport> {
     // 1. Sense — record only triples not already present (structural dedup).
     let mut seen: HashSet<(String, String, String)> =
         observation::load(dir)?.iter().map(triple).collect();
@@ -79,10 +118,17 @@ pub fn tick(dir: &Path, now: i64, allow_connectivity: bool) -> io::Result<TickRe
     let covered: HashSet<String> = cands.iter().map(|c| c.loop_id.clone()).collect();
     let mut seq = cands.len();
     let mut new_candidates = 0;
+    let mut llm_hypotheses = 0;
     for lp in &detected {
         if !covered.contains(&lp.id) {
             seq += 1;
-            let c = Candidate::from_loop(lp, format!("candidate-{seq:04}"));
+            let mut c = Candidate::from_loop(lp, format!("candidate-{seq:04}"));
+            if allow_llm {
+                if let Some(h) = draft_hypothesis(dir, lp) {
+                    c.hypothesis = h;
+                    llm_hypotheses += 1;
+                }
+            }
             candidate::append(dir, &c)?;
             new_candidates += 1;
         }
@@ -96,28 +142,37 @@ pub fn tick(dir: &Path, now: i64, allow_connectivity: bool) -> io::Result<TickRe
         sensed,
         loops: detected.len(),
         new_candidates,
+        llm_hypotheses,
         service: svc.measure,
         presence: pres.measure,
         presence_withdrawn: pres.withdrawn,
     })
 }
 
-/// Resolve whether the boundary permits the connectivity probe (a Network action).
-pub fn connectivity_allowed(dir: &Path) -> bool {
+/// Whether the boundary on disk permits an action of `kind` (fail-closed on error).
+fn boundary_allows(dir: &Path, kind: substrate_kernel::guard::ActionKind) -> bool {
     use substrate_kernel::boundary;
-    use substrate_kernel::guard::{self, Action, ActionKind, Decision};
+    use substrate_kernel::guard::{self, Action, Decision};
     match boundary::load(dir) {
-        Ok(b) => {
-            guard::evaluate(&Action::new(ActionKind::Network, "connectivity-probe"), &b).decision
-                == Decision::Allow
-        }
+        Ok(b) => guard::evaluate(&Action::new(kind, "cycle"), &b).decision == Decision::Allow,
         Err(_) => false,
     }
 }
 
-/// Convenience: a tick whose connectivity is gated by the boundary on disk.
+/// Resolve whether the boundary permits the connectivity probe (a Network action).
+pub fn connectivity_allowed(dir: &Path) -> bool {
+    boundary_allows(dir, substrate_kernel::guard::ActionKind::Network)
+}
+
+/// Resolve whether the boundary permits LLM consultation.
+pub fn llm_allowed(dir: &Path) -> bool {
+    boundary_allows(dir, substrate_kernel::guard::ActionKind::Llm)
+}
+
+/// Convenience: a tick whose connectivity and LLM use are gated by the boundary on
+/// disk. This is what the daemon runs — outward reach only where a human opened it.
 pub fn tick_gated(dir: &Path, now: i64) -> io::Result<TickReport> {
-    tick(dir, now, connectivity_allowed(dir))
+    tick(dir, now, connectivity_allowed(dir), llm_allowed(dir))
 }
 
 #[cfg(test)]
@@ -161,7 +216,7 @@ mod tests {
     fn first_tick_senses_detects_and_generates() {
         let t = Temp::new("first");
         seed_recurring(&t.0);
-        let r = tick(&t.0, 1_000_000, false).unwrap();
+        let r = tick(&t.0, 1_000_000, false, false).unwrap();
         assert!(r.sensed > 0, "host perception should record something");
         assert!(r.loops >= 1, "the recurring triple should form a loop");
         assert!(
@@ -176,8 +231,8 @@ mod tests {
     fn second_tick_is_idempotent_on_static_world() {
         let t = Temp::new("idem");
         seed_recurring(&t.0);
-        let _ = tick(&t.0, 1_000_000, false).unwrap();
-        let r2 = tick(&t.0, 1_000_000, false).unwrap();
+        let _ = tick(&t.0, 1_000_000, false, false).unwrap();
+        let r2 = tick(&t.0, 1_000_000, false, false).unwrap();
         assert_eq!(r2.sensed, 0, "static host facts are deduped — nothing new");
         assert_eq!(
             r2.new_candidates, 0,

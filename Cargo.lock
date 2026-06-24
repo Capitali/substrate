@@ -2835,6 +2835,7 @@ version = "0.1.0"
 dependencies = [
  "substrate-cycle",
  "substrate-kernel",
+ "substrate-llm",
  "substrate-sense",
 ]
 
@@ -2842,7 +2843,9 @@ dependencies = [
 name = "substrate-cycle"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "substrate-kernel",
+ "substrate-llm",
  "substrate-sense",
 ]
 
@@ -2852,6 +2855,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "substrate-llm"
+version = "0.1.0"
+dependencies = [
+ "substrate-kernel",
 ]
 
 [[package]]
