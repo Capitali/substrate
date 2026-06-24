@@ -2834,6 +2834,7 @@ name = "substrate-cli"
 version = "0.1.0"
 dependencies = [
  "substrate-kernel",
+ "substrate-sense",
 ]
 
 [[package]]
@@ -2850,6 +2851,13 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "substrate-kernel",
+]
+
+[[package]]
+name = "substrate-sense"
+version = "0.1.0"
+dependencies = [
  "substrate-kernel",
 ]
 

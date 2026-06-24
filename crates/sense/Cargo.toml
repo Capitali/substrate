@@ -1,0 +1,9 @@
+[package]
+name = "substrate-sense"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Perception of the host — environment, interfaces, capabilities — as observations."
+
+[dependencies]
+substrate-kernel.workspace = true

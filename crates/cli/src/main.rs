@@ -26,6 +26,7 @@ commands:
   observations   list recorded observations
   service        report the service signal (Law I)
   presence       report the presence signal (Law II)
+  sense          perceive the host (environment, interfaces, capabilities)
   boundary       show the current capability boundary (the human's lever)
   guard          weigh a proposed action against the boundary (Law III)
   consult        consult the LLM (refused unless a human has opened the boundary)
@@ -55,6 +56,7 @@ fn main() -> ExitCode {
         Some("observations") => cmd_observations(rest),
         Some("service") => cmd_service(rest),
         Some("presence") => cmd_presence(rest),
+        Some("sense") => cmd_sense(rest),
         Some("boundary") => cmd_boundary(rest),
         Some("guard") => cmd_guard(rest),
         Some("consult") => cmd_consult(rest),
@@ -185,6 +187,53 @@ fn cmd_presence(args: &[String]) -> ExitCode {
             "  the served have withdrawn — presence has decayed to zero (Law II: an empty world is not success)"
         );
     }
+    ExitCode::SUCCESS
+}
+
+fn cmd_sense(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let now = now_secs();
+
+    // Perception of the local host is always permitted (you can't serve what you
+    // can't see). Outward reach — the connectivity probe — is boundary-gated.
+    let mut perceived = Vec::new();
+    perceived.extend(substrate_sense::census(now));
+    perceived.extend(substrate_sense::interfaces(now));
+    perceived.extend(substrate_sense::capabilities(
+        now,
+        substrate_sense::DEFAULT_TOOLS,
+    ));
+
+    let mut connectivity_note = "skipped (network outside the boundary)".to_string();
+    match boundary::load(&dir) {
+        Ok(b) => {
+            let verdict =
+                guard::evaluate(&Action::new(ActionKind::Network, "connectivity-probe"), &b);
+            if verdict.decision == Decision::Allow {
+                let o = substrate_sense::connectivity(now);
+                connectivity_note = o.object.clone();
+                perceived.push(o);
+            }
+        }
+        Err(e) => {
+            eprintln!("sense: boundary policy error: {e} (treating network as closed)");
+        }
+    }
+
+    let mut recorded = 0;
+    for o in perceived {
+        match observation::record(&dir, o) {
+            Ok(_) => recorded += 1,
+            Err(e) => {
+                eprintln!("sense: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    println!("sensed the host: recorded {recorded} observations");
+    println!("  connectivity: {connectivity_note}");
+    println!("  (open the Observatory to see the environment the factory discovered)");
     ExitCode::SUCCESS
 }
 
