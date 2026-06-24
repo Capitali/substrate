@@ -27,6 +27,8 @@ commands:
   service        report the service signal (Law I)
   presence       report the presence signal (Law II)
   sense          perceive the host (environment, interfaces, capabilities)
+  tick           run one cycle of the metabolism (sense → detect → generate → measure)
+  run            run N cycles (--ticks N [--interval S]); the factory's metabolism
   boundary       show the current capability boundary (the human's lever)
   guard          weigh a proposed action against the boundary (Law III)
   consult        consult the LLM (refused unless a human has opened the boundary)
@@ -57,6 +59,8 @@ fn main() -> ExitCode {
         Some("service") => cmd_service(rest),
         Some("presence") => cmd_presence(rest),
         Some("sense") => cmd_sense(rest),
+        Some("tick") => cmd_tick(rest),
+        Some("run") => cmd_run(rest),
         Some("boundary") => cmd_boundary(rest),
         Some("guard") => cmd_guard(rest),
         Some("consult") => cmd_consult(rest),
@@ -234,6 +238,59 @@ fn cmd_sense(args: &[String]) -> ExitCode {
     println!("sensed the host: recorded {recorded} observations");
     println!("  connectivity: {connectivity_note}");
     println!("  (open the Observatory to see the environment the factory discovered)");
+    ExitCode::SUCCESS
+}
+
+fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
+    println!(
+        "tick {n}: +{} sensed, {} loops, +{} candidates | service {:.2}, presence {:.2}{}",
+        r.sensed,
+        r.loops,
+        r.new_candidates,
+        r.service,
+        r.presence,
+        if r.presence_withdrawn {
+            " (withdrawn)"
+        } else {
+            ""
+        }
+    );
+}
+
+fn cmd_tick(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    match substrate_cycle::tick_gated(&dir, now_secs()) {
+        Ok(r) => {
+            print_tick(1, &r);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tick: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_run(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    // Bounded by default so `run` never becomes a runaway daemon; a true long-lived
+    // service is a deliberate future step.
+    let ticks: usize = f.get("ticks").and_then(|s| s.parse().ok()).unwrap_or(1);
+    let interval: u64 = f.get("interval").and_then(|s| s.parse().ok()).unwrap_or(0);
+    for n in 1..=ticks {
+        match substrate_cycle::tick_gated(&dir, now_secs()) {
+            Ok(r) => print_tick(n, &r),
+            Err(e) => {
+                eprintln!("run: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        if interval > 0 && n < ticks {
+            std::thread::sleep(std::time::Duration::from_secs(interval));
+        }
+    }
     ExitCode::SUCCESS
 }
 

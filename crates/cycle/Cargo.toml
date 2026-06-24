@@ -1,15 +1,10 @@
 [package]
-name = "substrate-cli"
+name = "substrate-cycle"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "The CLI shell for the Substrate factory."
-
-[[bin]]
-name = "substrate"
-path = "src/main.rs"
+description = "The metabolism — one tick of the factory cycle (sense → detect → generate → measure)."
 
 [dependencies]
 substrate-kernel.workspace = true
 substrate-sense.workspace = true
-substrate-cycle.workspace = true
