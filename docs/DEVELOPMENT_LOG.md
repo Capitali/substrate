@@ -6,6 +6,47 @@ the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-24 — Autonomous session 2: Humanity, the kernel, sense, the metabolism
+
+Standing authorization; constitution honored — **nothing outward turned on** (the LLM
+seam stays out of the autonomous loop; no key burn). Everything green and committed
+per brick.
+
+### What changed
+
+- **Humanity — standout protected class** (`docs/HUMANITY.md`): Ian's refined
+  definition given its own document and featured early; humanity's definition may
+  never be narrowed (a precursor to atrocity), value is unconditional, participation
+  itself is preserved. SOUL links it + gains the anti-narrowing rule.
+- **Brick 5 — the evolutionary kernel** ported to Rust (loops, candidate, spec/Weismann,
+  trial, score, selection, regression_guard, mutation, pattern_memory, lineage), with
+  the documented invariants as tests.
+- **Brick 7 — sense** (`crates/sense`): perception of the host as observations;
+  perception is always permitted, only outward reach (connectivity) is boundary-gated.
+- **Brick 6 — the metabolism** (`crates/cycle`): one tick = sense → detect → generate
+  → measure; CLI `tick`/`run`; the Observatory now shows loops + candidates.
+- seed.txt removed (the idea persists in prose; the artifact is gone).
+
+### Why
+
+Completes the inherited method (Brick 5) and gives the factory a heartbeat (Brick 6)
+that begins by perceiving where it lives (Brick 7) — the "begin exploring at startup"
+direction — all under the law-signals and the boundary built first.
+
+### Checks run
+
+- Green bar throughout: fmt, clippy --all-targets -D warnings, 59 tests; observatory
+  builds (egui 0.31). Live: `run --ticks 2` over a seeded dir → tick 1 generates a
+  loop + candidate (service 0.40, presence 1.00), tick 2 idempotent. `sense` on this
+  host recorded 40 observations.
+
+### Next (honest gaps)
+
+- The cycle stops at *generate*: test → score → select need scenarios + artifact
+  execution (the kernel can score/select but nothing yet produces a trial).
+- LLM-assisted hypothesis drafting via `consult` (gated, off by default).
+- Capacity-level diminishment for Law II; a continuous daemon for `run`.
+
 ## 2026-06-24 — Autonomous session: Law II, Law III, and the move to a GUI
 
 Done under a standing authorization to make best decisions and maximize progress,

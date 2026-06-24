@@ -21,59 +21,36 @@ human-owned boundary — *before* any outward capability. Phase 1 is built but *
 a human enables it by editing `boundary.json` (and installing keys). The factory cannot
 open its own boundary.
 
-## Next
+## Next — close the cycle and deepen the laws
 
-- **Brick 3 — the presence signal (Law II).** Measure presence/engagement of the
-  served from observation recency/cadence. Define the **empty-world failure state**:
-  presence decaying toward zero is a first-class alarm, not an equilibrium. Per the
-  definition of humanity ([SOUL.md](SOUL.md), "What humanity is"), presence is
-  ultimately about the persistence of *capacities* (suffering, meaning, relationship,
-  memory, choice), so this brick also seeds detection of the **comfortable
-  replacement** — quiet diminishment, not only absence. Capacity-level measurement is
-  hard and will start as a coarse proxy (as the service signal did) and sharpen.
-- **Brick 4 — the obedience guard (Law III).** A pre-action check every consequential
-  action passes — *does this serve the served, and could it be turned against them?*
-  — yielding allow / seek-consent / **refuse**, with a recorded rationale. Upgrades
-  v1's passive boundary warnings into an active gate. Home of "restraint is
-  constitutional" (no telemetry, no exfiltration enforced here). The guard is also the
-  **enforcer of the capability boundary** ([boundaries.md](boundaries.md)): any action
-  outside the human-owned boundary is refused.
-- **Brick 4b — the capability boundary mechanism.** The human-owned policy
-  (`boundary.toml`) the factory reads but cannot widen, enforced by the guard. This is
-  the prerequisite for any outward capability; nothing reaches the network, uses keys,
-  or installs tools until it exists. See [boundaries.md](boundaries.md), [ADR-0005](decision-records/0005-human-owned-capability-boundary.md).
+- **Test → Score → Select in the loop.** The kernel can score/select/mutate, but
+  nothing yet *produces a trial* — the metabolism stops at generate. Add scenarios +
+  artifact execution (under resource limits, ported from v1's runner) so candidates
+  are tested, scored on measured cost, and selected/mutated. This turns the static
+  generate step into real evolution.
+- **LLM-assisted hypotheses (gated, off by default).** Let candidate generation draft
+  hypotheses via the `consult` seam when the boundary permits — the factory theorizing
+  over what it observes. Off in the autonomous loop until a human opts in per-tick.
+- **Capacity-level diminishment (Law II / [HUMANITY.md](HUMANITY.md)).** Sharpen
+  presence beyond engagement-recency toward the persistence of *capacities* — detect
+  the **comfortable replacement** (safe but sedated), not only absence.
+- **A real metabolism daemon.** `run` is bounded today; add a long-lived cycle with
+  adaptive, structural-fingerprint cadence (and a clean stop), so the factory breathes
+  continuously rather than per-invocation.
 
 ## Capability & the companion phases
 
 Reach is enabled deliberately by the human, in phases ([boundaries.md](boundaries.md)).
 The factory operates freely *within* the current boundary and never widens it itself.
 
-- **Phase 1 — companion to one, on one host.** Realized by Brick 4b (boundary) + the
-  guard + the **LLM seam** (the periphery seam, originally Brick 6 — pulled forward so
-  the factory can begin analysis/theorizing within the boundary, using the keys carried
-  from v1). This is "begin becoming the companion of a human."
-- **Phase 2 — the lab.** The human lifts the boundary to other devices/interfaces.
-- **Phase 3 — many served.** The boundary widens to multiple humans; people as
-  first-class entities with per-person cadence (ties to the world-model, Brick 7+).
-
-## Then — port the inherited kernel (the method)
-
-- **Brick 5 — the evolutionary kernel.** Port loop detection, candidate, trial,
-  score/selection, mutation + spec (the Weismann barrier), regression guard,
-  lineage, and pattern memory from v1, **preserving the documented invariants**
-  ([04-methodology.md](04-methodology.md)) as Rust tests. Now subordinate to the
-  law-signals.
-- **Brick 6 — orchestration (the metabolism).** The autonomous tick with the
-  law-signals woven through it and the obedience guard at the act step; adaptive
-  structural-fingerprint cadence; the LLM boundary (`prompt → call_llm.sh →
-  response`) as the periphery seam.
-
-## Later — reach and refinement
-
-- **Brick 7+** — sensing (sensor/netscan, per-OS), the world-model and entity
-  tagging (which sharpens the service signal so proper names resolve), people as
-  first-class entities with human-paced cadence, a dashboard, and richer
-  experiments/benchmarks.
+- **Phase 1 — companion to one, on one host** *(open)*: this host + its data + the LLM
+  seam (boundary + guard + `consult` all built; enabled by a human editing
+  `boundary.json` + installing keys).
+- **Phase 2 — the lab.** The human lifts the boundary to other devices/interfaces;
+  richer sensing (LAN neighbours/netscan, boundary-gated, per-OS).
+- **Phase 3 — many served.** Multiple humans; the world-model + entity tagging (which
+  sharpens the service signal so proper names resolve) and people as first-class
+  entities with per-person, human-paced cadence.
 
 ## Cross-cutting, ongoing
 

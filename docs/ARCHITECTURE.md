@@ -38,13 +38,19 @@ should run on (Pis, Cerbo armv7, the router — *where the served are*):
 
 ```
 crates/
-  kernel/   substrate-kernel (lib)  — the deterministic core
-    store.rs        JSONL append/load (serde); the data-dir
+  kernel/   substrate-kernel (lib)  — the deterministic core (serde-only, no unsafe)
+    store.rs        JSONL append/load/rewrite (serde); the data-dir
     observation.rs  the observation record (the only truth)
     service.rs      the service signal (Law I)
-    presence.rs     the presence signal (Law II)        [planned]
-    guard.rs        the obedience guard (Law III)        [planned]
-    # the evolutionary kernel (loop/candidate/trial/...) ports in next [planned]
+    presence.rs     the presence signal (Law II)
+    boundary.rs     the human-owned capability boundary (Law III)
+    guard.rs        the obedience guard (Law III)
+    loops.rs        loop detection (temporal view of the log)
+    candidate.rs · spec.rs   candidates + the heritable genotype (Weismann barrier)
+    trial.rs · score.rs · selection.rs · regression_guard.rs   testing & selection
+    mutation.rs · pattern_memory.rs · lineage.rs   variation, memory, ancestry
+  sense/    substrate-sense (lib) — perception of the host -> observations (periphery)
+  cycle/    substrate-cycle (lib) — the metabolism: one tick (sense→detect→generate→measure)
   cli/      substrate-cli (bin: `substrate`) — the thin shell (scripting/headless)
   observatory/  substrate-observatory (bin: `observatory`) — the GUI (primary human
                 interface; egui/eframe; read-only; GUI deps isolated here so the

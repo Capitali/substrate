@@ -9,6 +9,19 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **The evolutionary kernel (Brick 5)** — ported from v1 to Rust, subordinate to the
+  law-signals, with invariants as tests: `loops` (detection), `candidate`/`spec` (the
+  Weismann barrier), `trial`/`score`/`selection`/`regression_guard` (adaptive bar
+  0.70+0.25·rigor; the decision ladder; no unchanged retries), `mutation`/`pattern_memory`
+  (suppress a trait only when memory clearly punishes it)/`lineage`.
+- **Sense (Brick 7)** — `crates/sense`: the factory perceives its host (OS/CPU/memory,
+  interfaces, tool capabilities) as observations; connectivity is the one outward bit,
+  boundary-gated. Principle: the boundary governs *reach*, not *perception*.
+- **The metabolism (Brick 6)** — `crates/cycle`: one tick = sense → detect loops →
+  generate candidates → measure the law-signals. CLI `tick` / `run --ticks N`. LLM and
+  test→score→select are not yet in the loop (honest gaps).
+- **The Humanity standout document** (see Changed) and **the Observatory** now show
+  loops + candidates.
 - **The Observatory (GUI)** ([ADR-0006](docs/decision-records/0006-observatory-gui-egui.md)):
   a native egui/eframe window — the primary human interface — showing the Three Laws
   as live meters (service, presence, boundary) and the observation log. Read-only, no
