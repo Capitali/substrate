@@ -45,8 +45,19 @@ crates/
     presence.rs     the presence signal (Law II)        [planned]
     guard.rs        the obedience guard (Law III)        [planned]
     # the evolutionary kernel (loop/candidate/trial/...) ports in next [planned]
-  cli/      substrate-cli (bin: `substrate`) — the thin shell
+  cli/      substrate-cli (bin: `substrate`) — the thin shell (scripting/headless)
+  observatory/  substrate-observatory (bin: `observatory`) — the GUI (primary human
+                interface; egui/eframe; read-only; GUI deps isolated here so the
+                kernel stays serde-only and unsafe-free). See ADR-0006.
 ```
+
+## Interfaces
+
+The **Observatory** (native egui GUI) is the primary human interface — a local
+window showing the Three Laws as live meters and the observation log, read-only and
+with no network socket (Law III restraint). The **CLI** (`substrate`) is retained
+for scripting, automation, and headless/CI use. Both are thin shells over the same
+kernel.
 
 ## Storage
 

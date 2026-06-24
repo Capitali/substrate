@@ -6,6 +6,53 @@ the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-24 — Autonomous session: Law II, Law III, and the move to a GUI
+
+Done under a standing authorization to make best decisions and maximize progress,
+honoring the constitution: **nothing outward was turned on** (no keys, no live LLM,
+no installs) — enabling outward reach is a human act. Everything ships default-closed.
+
+### What changed
+
+- **seed.txt removed** (file + all references); the idea persists in prose, the
+  planning artifact does not. Content remains in the v1 archive.
+- **Brick 3 — presence signal (Law II)** (`presence.rs`): served engagement by
+  recency, decaying over a 3-day horizon; `withdrawn` is the empty-world alarm.
+  Clock-free (`now` passed in). CLI `presence`.
+- **Brick 4b — capability boundary** (`boundary.rs`): a human-owned JSON policy the
+  factory only reads; fail-closed (missing/partial = no reach); no write path, so the
+  factory can never widen itself. `store::load_one` added. CLI `boundary`.
+- **Brick 4 — obedience guard** (`guard.rs`): `evaluate(Action, &Boundary)` →
+  allow / seek-consent / refuse + rationale; enforces the boundary (fail-closed) and
+  seeks consent for high-consequence actions. CLI `guard`. A Phase-1 example policy
+  added under `data/sample/` (the switch a human copies to go live).
+- **The Observatory (GUI)** (`crates/observatory`, egui/eframe; [ADR-0006](decision-records/0006-observatory-gui-egui.md)):
+  the primary human interface — a local, read-only, socket-free window showing the
+  Three Laws as live meters and the observation log. GUI deps isolated; kernel stays
+  serde-only + unsafe-free. CLI retained for scripting/headless.
+
+### Why
+
+This completes the three law-signals (so the factory can measure service, presence,
+and govern action) *before* any outward capability — and answers the directive to
+move off the CLI to something visual.
+
+### Checks run
+
+- Green bar clean throughout: `cargo fmt --check`, `cargo clippy --all-targets -D
+  warnings`, `cargo test` (24 kernel tests). Observatory builds & links (egui 0.31);
+  the window itself is verified manually (no display in the build environment).
+- Live CLI demos for presence, boundary, and guard all behaved as designed
+  (host-only → withdrawal alarm; closed boundary refuses outward actions; Phase-1
+  example opens LLM/network).
+
+### Next
+
+The LLM seam (boundary-gated, default-off) is the remaining Phase-1 piece. Then,
+when the human flips the boundary to Phase 1, the factory can begin analysis/
+theorizing within it. Later: capacity-level diminishment detection (the comfortable
+replacement), the evolutionary kernel port (Brick 5), and the metabolism (Brick 6).
+
 ## 2026-06-24 — The human-owned capability boundary (companion phases)
 
 ### What changed

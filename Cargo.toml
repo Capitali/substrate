@@ -5,7 +5,7 @@
 # artifacts / data / the LLM seam), so the compiled core changes rarely.
 [workspace]
 resolver = "2"
-members = ["crates/kernel", "crates/cli"]
+members = ["crates/kernel", "crates/cli", "crates/observatory"]
 
 [workspace.package]
 version = "0.1.0"

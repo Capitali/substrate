@@ -41,13 +41,23 @@ The constitution that derives the whole design from these is [`docs/SOUL.md`](do
 
 ## Build & run
 
-Requires a Rust toolchain (`rustup`). The kernel is `crates/kernel`; the CLI binary is `substrate`.
+Requires a Rust toolchain (`rustup`). The kernel is `crates/kernel`.
+
+**The Observatory (GUI — the primary human interface):**
+
+```sh
+cargo run -p substrate-observatory        # opens a window: the Three Laws, live
+```
+
+**The CLI (scripting / headless):**
 
 ```sh
 cargo build
 cargo test
 cargo run -p substrate-cli -- observe --actor client --action requests --object status_report
 cargo run -p substrate-cli -- service        # the service signal (Law I)
+cargo run -p substrate-cli -- presence       # the presence signal (Law II)
+cargo run -p substrate-cli -- boundary       # the capability boundary (Law III)
 ```
 
 The green bar — required for every change — is `cargo fmt --check`,

@@ -9,6 +9,17 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **The Observatory (GUI)** ([ADR-0006](docs/decision-records/0006-observatory-gui-egui.md)):
+  a native egui/eframe window — the primary human interface — showing the Three Laws
+  as live meters (service, presence, boundary) and the observation log. Read-only, no
+  network socket; GUI deps isolated in `crates/observatory` so the kernel stays
+  serde-only and unsafe-free. The CLI is retained for scripting/headless use.
+- **Brick 3 — presence signal (Law II)**: `presence_signal()` measures served
+  engagement by recency; a withdrawal/empty-world alarm when it decays to zero.
+  (Capacity-level diminishment — the comfortable replacement — is a later sharpening.)
+- **Brick 4 — obedience guard (Law III)**: `guard::evaluate()` returns allow /
+  seek-consent / refuse with rationale, enforcing the capability boundary (fail-closed)
+  and seeking consent for high-consequence actions.
 - **Human-owned capability boundary** ([docs/boundaries.md](docs/boundaries.md),
   [ADR-0005](docs/decision-records/0005-human-owned-capability-boundary.md)): the
   factory's reach is bounded by a policy only the human writes; the factory may narrow
