@@ -53,6 +53,20 @@ pub fn load<T: DeserializeOwned>(dir: &Path, file: &str) -> io::Result<Vec<T>> {
     Ok(out)
 }
 
+/// Overwrite `<dir>/<file>` with exactly these records, one JSONL line each.
+/// For *derived* sets (e.g. detected loops) that are a pure function of the
+/// observations — persisting them is a rewrite, not an append, so the file never
+/// grows without bound.
+pub fn rewrite<T: Serialize>(dir: &Path, file: &str, records: &[T]) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    let mut s = String::new();
+    for r in records {
+        s.push_str(&serde_json::to_string(r).map_err(invalid_data)?);
+        s.push('\n');
+    }
+    fs::write(dir.join(file), s)
+}
+
 /// Load a single JSON object from `<dir>/<file>` (not JSONL — one object spanning the
 /// whole file). Returns `None` if the file is missing, an error if it is malformed.
 /// Used for human-owned policy files like the capability boundary.

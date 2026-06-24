@@ -11,8 +11,11 @@
 #![forbid(unsafe_code)]
 
 pub mod boundary;
+pub mod candidate;
 pub mod guard;
+pub mod loops;
 pub mod observation;
 pub mod presence;
 pub mod service;
+pub mod spec;
 pub mod store;
