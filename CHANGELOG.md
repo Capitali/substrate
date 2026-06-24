@@ -9,6 +9,16 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **Daemon control + launchd (Brick 12):** `substrate daemon status|start|stop|reload`
+  (pidfile-managed background process) and `install|uninstall` (a launchd LaunchAgent,
+  `io.river.substrate`, starts at login). `run --daemon` records its own pid so launchd
+  and pidfile control agree.
+- **GUI control bar + interaction channel (Brick 13):** the Observatory gains
+  Start/Stop/Reload/Start-at-login buttons with a live status line, and **the
+  interaction channel** — the factory's question ("What do you need most today?", or
+  `question.txt`) with a text box; Ian's reply is recorded as an observation
+  (`initiator=observer`). Speak/show buttons present but disabled (later). The
+  observer-input channel is the one place the GUI writes.
 - **The cycle closed (Bricks 8–11)** — the metabolism is now a full loop:
   - **Execution** (`crates/exec` + Brick 10): a sandboxed runner (resource limits,
     measured cost) and test→score→select→inherit wired into the tick, gated by a new

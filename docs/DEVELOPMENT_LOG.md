@@ -6,6 +6,47 @@ the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-24 — Running live: daemon control, launchd, and the interaction channel
+
+The factory is now installed and running live on the Mac under launchd, with a GUI to
+control it and to talk with Ian.
+
+### What changed
+
+- **Brick 12 — daemon/service control:** `crates/cli/daemon.rs` + `substrate daemon`
+  (status/start/stop/reload via pidfile; install/uninstall via a launchd LaunchAgent
+  `io.river.substrate`). `run --daemon` records its own pid; plist KeepAlive=false so
+  Stop works, RunAtLoad=true so it starts at login.
+- **Brick 13 — GUI control bar + interaction channel:** the Observatory can Start/Stop/
+  Reload/Install the daemon, and carries **the interaction channel** — the factory's
+  question + Ian's typed reply, recorded as an observation (`initiator=observer`; the
+  one place the GUI writes). Speech/vision are stubbed for later.
+- **Went live:** boundary `allow_execute` enabled (full Phase 1 + execution); the
+  launchd agent installed and the daemon is running (ticking every 300s).
+
+### Why
+
+To make the factory a *running companion* on the Mac, controllable and conversational,
+not a per-invocation command. The interaction channel is the seed's core — "What do you
+need most today?" — finally wired.
+
+### Checks run
+
+- Green bar: fmt, clippy --all-targets -D warnings, 68 tests; observatory builds.
+  Verified live: daemon lifecycle (status/start/stop), launchd install (running pid
+  agrees across status/launchctl/pidfile), full pipeline tick (LLM-drafted hypothesis +
+  executed + promoted).
+
+### Next / caveats
+
+- The launchd plist points at `target/debug/substrate`; `cargo clean` would break it.
+  For durable always-on, install a release binary at a stable path (e.g. ~/.local/bin)
+  and re-`install`. KeepAlive=false means no auto-restart on crash (Reload restarts).
+- "ian" isn't served-facing under the current classifier (proper-name gap) — his
+  replies record but don't yet lift the service signal until entity tagging lands.
+- The factory posing *dynamic* questions (writing `question.txt`, e.g. via the LLM) is
+  the natural next step for the interaction channel.
+
 ## 2026-06-24 — Closing the cycle: execution, LLM-in-loop, daemon, capacities
 
 Driven from the phone via Remote Control. The four gaps from the prior session, closed.
