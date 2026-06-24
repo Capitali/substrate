@@ -399,6 +399,9 @@ fn cmd_run(args: &[String]) -> ExitCode {
         if interval == 0 {
             interval = 60; // a sane default cadence so it isn't a busy loop
         }
+        // Make this process visible to `daemon status/start/stop` (incl. when launched
+        // by launchd), so the two control paths agree and never double-spawn.
+        daemon::record_self(&dir);
         println!("metabolism running every {interval}s — Ctrl-C to stop");
         let mut n = 0usize;
         loop {

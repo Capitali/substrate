@@ -24,6 +24,13 @@ fn is_alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+/// Record the *current* process as the daemon (used by `run --daemon` itself, so a
+/// launchd-launched daemon is visible to `status`/`start`/`stop`).
+pub fn record_self(dir: &Path) {
+    let _ = fs::create_dir_all(dir);
+    let _ = fs::write(pidfile(dir), std::process::id().to_string());
+}
+
 /// The running daemon's pid, if any. Clears a stale pidfile.
 pub fn status(dir: &Path) -> Option<u32> {
     let pid: u32 = fs::read_to_string(pidfile(dir)).ok()?.trim().parse().ok()?;
@@ -110,7 +117,7 @@ pub fn install(dir: &Path, interval: u64) -> io::Result<PathBuf> {
     <string>{dir}</string>
   </array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><false/>
   <key>StandardOutPath</key><string>{log}</string>
   <key>StandardErrorPath</key><string>{log}</string>
 </dict>
