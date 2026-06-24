@@ -1,0 +1,37 @@
+# Changelog
+
+All notable changes to Substrate are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
+[Semantic Versioning](https://semver.org/) once it reaches 1.0. The chronological
+engineering detail lives in [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md);
+this file is the human-readable summary.
+
+## [Unreleased]
+
+### Added
+- **Repository as scientific evidence** — FAIR/FAIR4RS + IMRaD structure: root
+  metadata (`CITATION.cff`, `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`), the
+  `docs/00`–`07` IMRaD set, Architecture Decision Records (`docs/decision-records/`), and the
+  `experiments/`, `validation/`, `security/`, `data/` evidence trees.
+- **CI** — `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` on push/PR.
+
+## [0.1.0] — 2026-06-24 — Genesis + telos-first bootstrap
+
+### Added
+- **Genesis** — the constitution (`docs/SOUL.md`): the Three Laws as root, with the
+  whole design derived downward from them. Founding vision carried forward as
+  `docs/seed.txt`.
+- **Brick 0** — Cargo workspace (`crates/kernel` + `crates/cli`), Rust, with
+  `#![forbid(unsafe_code)]`; `store.rs` JSONL persistence over `serde`.
+- **Brick 1** — the observation spine: the `Observation` record (the only truth)
+  and `substrate observe` / `observations`.
+- **Brick 2** — the **service signal (Law I)**: `service_signal()` measures
+  served-facing attention from observations; `substrate service` reports it.
+
+### Context
+- Re-founds the archived bottom-up predecessor `Capitali/factory` (tag `v1-final`),
+  inverting the order of derivation: purpose is the floor, evolution the method on
+  top of it. See [docs/01-problem-statement.md](docs/01-problem-statement.md).
+
+[Unreleased]: https://github.com/Capitali/substrate/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Capitali/substrate/releases/tag/v0.1.0
