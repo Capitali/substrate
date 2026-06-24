@@ -43,6 +43,7 @@ crates/
     observation.rs  the observation record (the only truth)
     service.rs      the service signal (Law I)
     presence.rs     the presence signal (Law II)
+    capacities.rs   the capacities signal (Law II / HUMANITY.md — comfortable replacement)
     boundary.rs     the human-owned capability boundary (Law III)
     guard.rs        the obedience guard (Law III)
     loops.rs        loop detection (temporal view of the log)
@@ -50,7 +51,10 @@ crates/
     trial.rs · score.rs · selection.rs · regression_guard.rs   testing & selection
     mutation.rs · pattern_memory.rs · lineage.rs   variation, memory, ancestry
   sense/    substrate-sense (lib) — perception of the host -> observations (periphery)
-  cycle/    substrate-cycle (lib) — the metabolism: one tick (sense→detect→generate→measure)
+  llm/      substrate-llm (lib)   — the LLM seam: boundary-gated consult (periphery)
+  exec/     substrate-exec (lib)  — sandboxed script runner (resource limits + cost)
+  cycle/    substrate-cycle (lib) — the metabolism: one full tick (sense→detect→generate
+                                    →test→score→select→measure)
   cli/      substrate-cli (bin: `substrate`) — the thin shell (scripting/headless)
   observatory/  substrate-observatory (bin: `observatory`) — the GUI (primary human
                 interface; egui/eframe; read-only; GUI deps isolated here so the

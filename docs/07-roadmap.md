@@ -13,30 +13,33 @@ brick, in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
 - **Brick 3** — the presence signal (**Law II**): engagement recency + withdrawal alarm.
 - **Brick 4 / 4b** — the obedience guard + the human-owned capability boundary (**Law III**).
 - **The Observatory** — native egui GUI; the primary human interface ([ADR-0006](decision-records/0006-observatory-gui-egui.md)).
-- **The LLM seam** — `consult`, boundary-gated and **default-off** (the periphery seam).
+- **The LLM seam** — `consult` + `crates/llm`, boundary-gated and **default-off**.
+- **The kernel (Brick 5)** — loops, candidate/spec (Weismann), trial/score/selection/
+  regression-guard, mutation/pattern-memory/lineage, ported with invariants as tests.
+- **Sense (Brick 7)** — the factory perceives its host (`crates/sense`).
+- **The metabolism (Brick 6)** — the tick: sense → detect → generate → measure.
+- **The cycle closed (Bricks 8–11):** execution (sandboxed runner + test→score→select,
+  `crates/exec`, gated by `allow_execute`); the LLM in the loop drafting hypotheses;
+  the unbounded daemon (`run --daemon`); and the **capacities signal** (Law II deepened
+  — the comfortable-replacement alarm).
 - **Repository as evidence** — FAIR/IMRaD structure, ADRs, CI.
 
-All three law-signals are now measurable, and the obedience guard enforces a
-human-owned boundary — *before* any outward capability. Phase 1 is built but **inert**:
-a human enables it by editing `boundary.json` (and installing keys). The factory cannot
-open its own boundary.
+The full cycle now runs — observe → detect → generate (LLM-drafted) → test → score →
+select → inherit — under the law-signals (service, presence, capacities) and the
+human-owned boundary. Outward reach (network, LLM, execution) is each a separate gate
+only a human opens; the factory never widens its own.
 
-## Next — close the cycle and deepen the laws
+## Next — sharpen and reach
 
-- **Test → Score → Select in the loop.** The kernel can score/select/mutate, but
-  nothing yet *produces a trial* — the metabolism stops at generate. Add scenarios +
-  artifact execution (under resource limits, ported from v1's runner) so candidates
-  are tested, scored on measured cost, and selected/mutated. This turns the static
-  generate step into real evolution.
-- **LLM-assisted hypotheses (gated, off by default).** Let candidate generation draft
-  hypotheses via the `consult` seam when the boundary permits — the factory theorizing
-  over what it observes. Off in the autonomous loop until a human opts in per-tick.
-- **Capacity-level diminishment (Law II / [HUMANITY.md](HUMANITY.md)).** Sharpen
-  presence beyond engagement-recency toward the persistence of *capacities* — detect
-  the **comfortable replacement** (safe but sedated), not only absence.
-- **A real metabolism daemon.** `run` is bounded today; add a long-lived cycle with
-  adaptive, structural-fingerprint cadence (and a clean stop), so the factory breathes
-  continuously rather than per-invocation.
+- **Real scenarios & LLM-authored artifacts.** Today's artifacts are deterministic and
+  safe; next, test candidates against real scenarios and (separately gated) execute
+  LLM-authored *solutions*, so selection genuinely discriminates.
+- **Rigor & adaptive cadence.** Feed a measured rigor drive into the promotion bar; give
+  the daemon structural-fingerprint cadence (slow when nothing changes).
+- **Sharpen the signals.** Service beyond attention (needs *reduced*); capacities beyond
+  the verb-lexicon proxy; presence per-person.
+- **Reach (Phase 2+).** LAN sensing, the world-model + entity tagging (so proper names
+  resolve as served), people as first-class entities with human-paced cadence.
 
 ## Capability & the companion phases
 

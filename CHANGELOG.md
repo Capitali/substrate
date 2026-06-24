@@ -9,6 +9,18 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **The cycle closed (Bricks 8–11)** — the metabolism is now a full loop:
+  - **Execution** (`crates/exec` + Brick 10): a sandboxed runner (resource limits,
+    measured cost) and test→score→select→inherit wired into the tick, gated by a new
+    `allow_execute` boundary flag (default-off — running generated code is Law III).
+  - **The LLM in the loop** (`crates/llm` + Brick 9): boundary-gated `consult`; the
+    cycle drafts candidate hypotheses via the LLM when permitted (falls back to
+    deterministic; the model proposes, it doesn't decide).
+  - **The unbounded daemon** (Brick 8): `run --daemon` / `--ticks 0`, every
+    `--interval` (default 60s), Ctrl-C to stop.
+  - **The capacities signal** (Brick 11, `capacities.rs`): Law II deepened toward
+    HUMANITY.md — flags the *comfortable replacement* (present but hollowed out), not
+    just absence. CLI `capacities`.
 - **The evolutionary kernel (Brick 5)** — ported from v1 to Rust, subordinate to the
   law-signals, with invariants as tests: `loops` (detection), `candidate`/`spec` (the
   Weismann barrier), `trial`/`score`/`selection`/`regression_guard` (adaptive bar

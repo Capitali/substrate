@@ -6,6 +6,48 @@ the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-24 — Closing the cycle: execution, LLM-in-loop, daemon, capacities
+
+Driven from the phone via Remote Control. The four gaps from the prior session, closed.
+
+### What changed
+
+- **Brick 8 — unbounded daemon:** `run --daemon`/`--ticks 0` loops at `--interval`
+  (default 60s); Ctrl-C stops (append-only log is interrupt-safe).
+- **Brick 9 — LLM in the loop:** extracted `crates/llm` (boundary-gated `consult`); the
+  cycle's generate step now drafts hypotheses via the LLM when the boundary permits
+  (deterministic fallback). Verified live (Gemini drafted a telos-aligned hypothesis).
+- **Brick 10 — execution:** `crates/exec` sandboxed runner (ulimit + in-process wall
+  timeout + capped output + measured cost, no unsafe); the tick now authors a
+  deterministic+safe artifact, runs it, records a trial (cost-folded), and runs
+  selection → promote/mutate(memory-informed, regression-guarded)/archive + pattern
+  memory. Gated by a new `allow_execute` boundary flag (default-off — running generated
+  code is a Law III matter). Artifacts are deterministic for now; executing LLM-authored
+  *solutions* is a further, separately-gated step.
+- **Brick 11 — capacities (Law II / HUMANITY.md):** `capacities.rs` flags the
+  *comfortable replacement* (present but hollowed out) via agency + variety proxies over
+  served-facing activity. A coarse cold-start, documented as such.
+
+### Why
+
+To turn the factory from "proposes" into "lives": it now observes → detects → generates
+(LLM-drafted) → tests → scores → selects → inherits, breathing continuously, under the
+three law-signals and the human-owned boundary it can never widen.
+
+### Checks run
+
+- Green bar throughout: fmt, clippy --all-targets -D warnings, 68 tests. Live: a gated
+  tick promoted a candidate (trial=pass) and drafted an LLM hypothesis; monotonous
+  compliance raised the diminished alarm (capacities 0.12). One bug caught & fixed: the
+  capacities passive-marker lexicon missed inflections ("complies") — now stem-matched.
+
+### Next
+
+Real scenarios + (separately gated) execution of LLM-authored solutions so selection
+discriminates; a measured rigor drive into the promotion bar + adaptive daemon cadence;
+sharpen the signals (service = needs reduced; capacities beyond the lexicon; presence
+per-person); reach (LAN sensing, world-model/entity tagging, people as entities).
+
 ## 2026-06-24 — Autonomous session 2: Humanity, the kernel, sense, the metabolism
 
 Standing authorization; constitution honored — **nothing outward turned on** (the LLM
