@@ -16,7 +16,7 @@ scientific **IMRaD** structure (Introduction → Methods → Results → Discuss
 3. **Service must not become obedience** — obedience can terminate the served.
 
 The constitution that derives the whole design from these is [`docs/SOUL.md`](docs/SOUL.md).
-The narrative this telos is meant to become is [`docs/seed.txt`](docs/seed.txt).
+
 
 ## Read it as a paper (IMRaD)
 
