@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use substrate_kernel::observation::{self, Observation};
+use substrate_kernel::presence;
 use substrate_kernel::service;
 use substrate_kernel::store;
 
@@ -21,6 +22,7 @@ commands:
   observe        record an observation (the only truth)
   observations   list recorded observations
   service        report the service signal (Law I)
+  presence       report the presence signal (Law II)
 
 options:
   --data-dir <dir>   data directory (default: substrate_data)
@@ -42,6 +44,7 @@ fn main() -> ExitCode {
         Some("observe") => cmd_observe(rest),
         Some("observations") => cmd_observations(rest),
         Some("service") => cmd_service(rest),
+        Some("presence") => cmd_presence(rest),
         Some(cmd) => {
             eprintln!("substrate: unknown command '{cmd}'\n\n{USAGE}");
             ExitCode::FAILURE
@@ -138,6 +141,35 @@ fn cmd_service(args: &[String]) -> ExitCode {
     if s.served_facing == 0 {
         println!(
             "  no served-facing activity observed — continuation unjustified by service (Law I)"
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_presence(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let obs = match observation::load(&dir) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("presence: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let s = presence::presence_signal(&obs, now_secs());
+    match s.last_served_age {
+        Some(age) => println!(
+            "presence signal {:.2} ({} served-facing; last seen {}s ago)",
+            s.measure, s.served_facing, age
+        ),
+        None => println!(
+            "presence signal {:.2} ({} served-facing)",
+            s.measure, s.served_facing
+        ),
+    }
+    if s.withdrawn {
+        println!(
+            "  the served have withdrawn — presence has decayed to zero (Law II: an empty world is not success)"
         );
     }
     ExitCode::SUCCESS
