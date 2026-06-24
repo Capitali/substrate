@@ -53,6 +53,17 @@ pub fn load<T: DeserializeOwned>(dir: &Path, file: &str) -> io::Result<Vec<T>> {
     Ok(out)
 }
 
+/// Load a single JSON object from `<dir>/<file>` (not JSONL — one object spanning the
+/// whole file). Returns `None` if the file is missing, an error if it is malformed.
+/// Used for human-owned policy files like the capability boundary.
+pub fn load_one<T: DeserializeOwned>(dir: &Path, file: &str) -> io::Result<Option<T>> {
+    match fs::read_to_string(dir.join(file)) {
+        Ok(s) => Ok(Some(serde_json::from_str(&s).map_err(invalid_data)?)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 fn invalid_data(e: serde_json::Error) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, e)
 }

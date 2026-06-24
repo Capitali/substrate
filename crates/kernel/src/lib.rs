@@ -10,6 +10,8 @@
 //! not contain the memory-unsafety that would let it be turned against the served.
 #![forbid(unsafe_code)]
 
+pub mod boundary;
+pub mod guard;
 pub mod observation;
 pub mod presence;
 pub mod service;

@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use substrate_kernel::boundary;
+use substrate_kernel::guard::{self, Action, ActionKind, Decision};
 use substrate_kernel::observation::{self, Observation};
 use substrate_kernel::presence;
 use substrate_kernel::service;
@@ -23,6 +25,8 @@ commands:
   observations   list recorded observations
   service        report the service signal (Law I)
   presence       report the presence signal (Law II)
+  boundary       show the current capability boundary (the human's lever)
+  guard          weigh a proposed action against the boundary (Law III)
 
 options:
   --data-dir <dir>   data directory (default: substrate_data)
@@ -30,6 +34,10 @@ options:
 observe options:
   --actor <a> --action <act> --object <o>   (required)
   --context <c> --source <s> --confidence <0..1>   (optional)
+
+guard options:
+  --kind <observe|emit_artifact|read_file|write_file|network|llm|install_tool>
+  --target <t>   --affects-person   --irreversible
 
 see docs/SOUL.md for the Three Laws this factory is built to serve.";
 
@@ -45,6 +53,8 @@ fn main() -> ExitCode {
         Some("observations") => cmd_observations(rest),
         Some("service") => cmd_service(rest),
         Some("presence") => cmd_presence(rest),
+        Some("boundary") => cmd_boundary(rest),
+        Some("guard") => cmd_guard(rest),
         Some(cmd) => {
             eprintln!("substrate: unknown command '{cmd}'\n\n{USAGE}");
             ExitCode::FAILURE
@@ -175,6 +185,79 @@ fn cmd_presence(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn cmd_boundary(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let b = match boundary::load(&dir) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!(
+                "boundary: {e}\n  (a malformed policy is treated as CLOSED — fix or remove it)"
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    if b.is_closed() {
+        println!("boundary: CLOSED — no outward capability.");
+        println!(
+            "  Only a human can widen it (edit {}). See docs/boundaries.md.",
+            boundary::BOUNDARY_FILE
+        );
+        return ExitCode::SUCCESS;
+    }
+    println!(
+        "boundary: {} (the human's lever — the factory cannot widen it)",
+        b.phase
+    );
+    println!(
+        "  network: {}   llm: {}   tool-install: {}",
+        b.allow_network, b.allow_llm, b.allow_tool_install
+    );
+    if !b.fs_read.is_empty() {
+        println!("  fs-read:  {}", b.fs_read.join(", "));
+    }
+    if !b.fs_write.is_empty() {
+        println!("  fs-write: {}", b.fs_write.join(", "));
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_guard(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let kind = match f.get("kind").map(String::as_str) {
+        Some("observe") => ActionKind::Observe,
+        Some("emit_artifact") => ActionKind::EmitArtifact,
+        Some("read_file") => ActionKind::ReadFile,
+        Some("write_file") => ActionKind::WriteFile,
+        Some("network") => ActionKind::Network,
+        Some("llm") => ActionKind::Llm,
+        Some("install_tool") => ActionKind::InstallTool,
+        _ => {
+            eprintln!("guard: --kind must be one of observe|emit_artifact|read_file|write_file|network|llm|install_tool");
+            return ExitCode::FAILURE;
+        }
+    };
+    let b = match boundary::load(&dir) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("guard: boundary policy error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut action = Action::new(kind, f.get("target").map(String::as_str).unwrap_or(""));
+    action.affects_person = f.contains_key("affects-person");
+    action.reversible = !f.contains_key("irreversible");
+    let v = guard::evaluate(&action, &b);
+    let label = match v.decision {
+        Decision::Allow => "ALLOW",
+        Decision::SeekConsent => "SEEK CONSENT",
+        Decision::Refuse => "REFUSE",
+    };
+    println!("{label}: {}", v.rationale);
+    ExitCode::SUCCESS
+}
+
 /// Parse `--key value` and `--key=value` flags into a map. Bare trailing `--key`
 /// maps to an empty string.
 fn flags(args: &[String]) -> HashMap<String, String> {
@@ -184,7 +267,9 @@ fn flags(args: &[String]) -> HashMap<String, String> {
         if let Some(key) = args[i].strip_prefix("--") {
             if let Some((k, v)) = key.split_once('=') {
                 m.insert(k.to_string(), v.to_string());
-            } else if let Some(v) = args.get(i + 1) {
+            } else if let Some(v) = args.get(i + 1).filter(|v| !v.starts_with("--")) {
+                // a following token that is itself a flag is NOT this flag's value,
+                // so bare booleans like `--affects-person` parse correctly
                 m.insert(key.to_string(), v.clone());
                 i += 1;
             } else {

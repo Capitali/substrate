@@ -1,0 +1,9 @@
+{
+  "_comment": "EXAMPLE ONLY — not active. To enable Phase 1 (companion-to-one), a HUMAN copies this to <data-dir>/boundary.json (default substrate_data/boundary.json) and edits the paths. The factory only reads boundary.json; it can never write or widen it. Remove the file (or set everything false/empty) to return to CLOSED. See docs/boundaries.md.",
+  "phase": "phase-1",
+  "allow_network": true,
+  "allow_llm": true,
+  "allow_tool_install": false,
+  "fs_read": ["/Users/ian/"],
+  "fs_write": ["/Users/ian/Development/substrate/substrate_data/"]
+}
