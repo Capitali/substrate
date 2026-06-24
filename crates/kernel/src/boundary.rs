@@ -29,6 +29,9 @@ pub struct Boundary {
     pub allow_llm: bool,
     /// May the factory install/download tools?
     pub allow_tool_install: bool,
+    /// May the factory **execute generated artifacts** (run code it produced)? A
+    /// distinct, high-consequence gate — running generated code is its own risk.
+    pub allow_execute: bool,
     /// Path prefixes the factory may read.
     pub fs_read: Vec<String>,
     /// Path prefixes the factory may write.
@@ -49,6 +52,7 @@ impl Boundary {
             allow_network: false,
             allow_llm: false,
             allow_tool_install: false,
+            allow_execute: false,
             fs_read: Vec::new(),
             fs_write: Vec::new(),
         }
@@ -59,6 +63,7 @@ impl Boundary {
         !self.allow_network
             && !self.allow_llm
             && !self.allow_tool_install
+            && !self.allow_execute
             && self.fs_read.is_empty()
             && self.fs_write.is_empty()
     }

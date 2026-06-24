@@ -32,6 +32,8 @@ pub enum ActionKind {
     Llm,
     /// Install or download a tool.
     InstallTool,
+    /// Execute a generated artifact (run code the factory produced).
+    ExecuteArtifact,
 }
 
 /// The guard's outcome.
@@ -114,6 +116,8 @@ pub fn evaluate(action: &Action, boundary: &Boundary) -> Verdict {
                 .then(|| "LLM consultation is outside the boundary".to_string()),
             InstallTool => (!boundary.allow_tool_install)
                 .then(|| "tool installation is outside the boundary".to_string()),
+            ExecuteArtifact => (!boundary.allow_execute)
+                .then(|| "executing generated artifacts is outside the boundary".to_string()),
         };
 
     if let Some(reason) = out_of_bounds {
@@ -162,6 +166,7 @@ mod tests {
             allow_network: true,
             allow_llm: true,
             allow_tool_install: false,
+            allow_execute: false,
             fs_read: vec!["/Users/ian/".into()],
             fs_write: vec!["/Users/ian/Development/substrate/substrate_data/".into()],
         }
@@ -174,6 +179,7 @@ mod tests {
             ActionKind::Network,
             ActionKind::Llm,
             ActionKind::InstallTool,
+            ActionKind::ExecuteArtifact,
             ActionKind::ReadFile,
             ActionKind::WriteFile,
         ] {

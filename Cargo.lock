@@ -2850,6 +2850,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "substrate-exec"
+version = "0.1.0"
+
+[[package]]
 name = "substrate-kernel"
 version = "0.1.0"
 dependencies = [
