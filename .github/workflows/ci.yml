@@ -39,10 +39,14 @@ jobs:
         run: cargo test --all
 
       - name: No unsafe in the kernel (Law III)
+        # The real guarantee is `#![forbid(unsafe_code)]` (compile-enforced). This is a
+        # belt-and-suspenders check for the `unsafe` *keyword* in code — matching
+        # `unsafe {`, `unsafe fn`, `unsafe impl/trait/extern` — so a string literal like
+        # the "unsafe" failure class does not trip it.
         run: |
-          if grep -rnE '\bunsafe\b' crates/kernel/src \
-               | grep -vE 'forbid\(unsafe_code\)|^\s*//|^\s*//!'; then
-            echo "::error::unsafe found in crates/kernel — Law III forbids it"
+          if grep -rnE '\bunsafe[[:space:]]*(\{|fn|impl|trait|extern)' crates/kernel/src; then
+            echo "::error::real unsafe usage in crates/kernel — Law III forbids it"
             exit 1
           fi
+          echo "no unsafe in kernel ✓"
           echo "no unsafe in kernel ✓"
