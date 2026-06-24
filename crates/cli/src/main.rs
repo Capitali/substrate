@@ -3,6 +3,8 @@
 //! Argument parsing is hand-rolled and dependency-free on purpose: a small,
 //! legible trust surface is part of the Law III commitment.
 
+mod daemon;
+
 use std::collections::HashMap;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +33,9 @@ commands:
   tick           run one cycle of the metabolism (sense → detect → generate → measure)
   run            run the metabolism: --ticks N (bounded) or --daemon/--ticks 0
                  (unbounded, every --interval S, default 60; Ctrl-C to stop)
+  daemon         manage the background daemon:
+                 status | start | stop | reload | install | uninstall
+                 (start/stop = pidfile process; install = launchd at login)
   boundary       show the current capability boundary (the human's lever)
   guard          weigh a proposed action against the boundary (Law III)
   consult        consult the LLM (refused unless a human has opened the boundary)
@@ -64,6 +69,7 @@ fn main() -> ExitCode {
         Some("sense") => cmd_sense(rest),
         Some("tick") => cmd_tick(rest),
         Some("run") => cmd_run(rest),
+        Some("daemon") => cmd_daemon(rest),
         Some("boundary") => cmd_boundary(rest),
         Some("guard") => cmd_guard(rest),
         Some("consult") => cmd_consult(rest),
@@ -265,6 +271,77 @@ fn cmd_sense(args: &[String]) -> ExitCode {
     println!("  connectivity: {connectivity_note}");
     println!("  (open the Observatory to see the environment the factory discovered)");
     ExitCode::SUCCESS
+}
+
+fn cmd_daemon(args: &[String]) -> ExitCode {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    let interval: u64 = f
+        .get("interval")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
+
+    let result: std::io::Result<()> = (|| {
+        match sub {
+            "status" => {
+                match daemon::status(&dir) {
+                    Some(pid) => println!("daemon: running (pid {pid})"),
+                    None => println!("daemon: stopped"),
+                }
+                println!(
+                    "launchd (start at login): {}",
+                    if daemon::is_installed() {
+                        "installed"
+                    } else {
+                        "not installed"
+                    }
+                );
+            }
+            "start" => {
+                let pid = daemon::start(&dir, interval)?;
+                println!("daemon: running (pid {pid}), every {interval}s");
+            }
+            "stop" => {
+                if daemon::stop(&dir)? {
+                    println!("daemon: stopped");
+                } else {
+                    println!("daemon: was not running");
+                }
+            }
+            "reload" => {
+                let pid = daemon::reload(&dir, interval)?;
+                println!("daemon: reloaded (pid {pid})");
+            }
+            "install" => {
+                let plist = daemon::install(&dir, interval)?;
+                println!("launchd: installed at login -> {}", plist.display());
+            }
+            "uninstall" => {
+                if daemon::uninstall()? {
+                    println!("launchd: uninstalled");
+                } else {
+                    println!("launchd: was not installed");
+                }
+            }
+            other => {
+                eprintln!("daemon: unknown subcommand '{other}' (status|start|stop|reload|install|uninstall)");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "bad subcommand",
+                ));
+            }
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("daemon: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn print_tick(n: usize, r: &substrate_cycle::TickReport) {

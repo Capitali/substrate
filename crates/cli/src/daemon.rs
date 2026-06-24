@@ -1,0 +1,152 @@
+//! Manage the metabolism as a background process — manually (pidfile) or via launchd
+//! (start at login). macOS-oriented (`launchctl`, `kill`). The GUI control bar and the
+//! `substrate daemon` subcommands both go through here.
+
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+const PIDFILE: &str = "daemon.pid";
+const LOGFILE: &str = "daemon.log";
+const LAUNCHD_LABEL: &str = "io.river.substrate";
+
+fn pidfile(dir: &Path) -> PathBuf {
+    dir.join(PIDFILE)
+}
+
+fn is_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// The running daemon's pid, if any. Clears a stale pidfile.
+pub fn status(dir: &Path) -> Option<u32> {
+    let pid: u32 = fs::read_to_string(pidfile(dir)).ok()?.trim().parse().ok()?;
+    if is_alive(pid) {
+        Some(pid)
+    } else {
+        let _ = fs::remove_file(pidfile(dir));
+        None
+    }
+}
+
+/// Start a detached daemon (no-op if one is already running). Returns its pid.
+/// Output goes to `daemon.log`; the child outlives this process.
+pub fn start(dir: &Path, interval: u64) -> io::Result<u32> {
+    if let Some(pid) = status(dir) {
+        return Ok(pid);
+    }
+    fs::create_dir_all(dir)?;
+    let exe = std::env::current_exe()?;
+    let log = fs::File::create(dir.join(LOGFILE))?;
+    let log_err = log.try_clone()?;
+    let child = Command::new(exe)
+        .arg("run")
+        .arg("--daemon")
+        .arg("--interval")
+        .arg(interval.to_string())
+        .arg("--data-dir")
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_err))
+        .spawn()?;
+    let pid = child.id();
+    fs::write(pidfile(dir), pid.to_string())?;
+    Ok(pid) // child is intentionally not awaited — it runs in the background
+}
+
+/// Stop the running daemon (SIGTERM). Returns whether one was running.
+pub fn stop(dir: &Path) -> io::Result<bool> {
+    match status(dir) {
+        Some(pid) => {
+            Command::new("kill").arg(pid.to_string()).status()?;
+            let _ = fs::remove_file(pidfile(dir));
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Stop then start — reload the metabolism.
+pub fn reload(dir: &Path, interval: u64) -> io::Result<u32> {
+    stop(dir)?;
+    start(dir, interval)
+}
+
+fn launchd_plist_path() -> io::Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "HOME not set"))?;
+    Ok(PathBuf::from(home)
+        .join("Library/LaunchAgents")
+        .join(format!("{LAUNCHD_LABEL}.plist")))
+}
+
+/// Install a launchd LaunchAgent so the daemon starts at login (and is kept alive).
+/// Writes the plist and loads it. macOS only.
+pub fn install(dir: &Path, interval: u64) -> io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let plist = launchd_plist_path()?;
+    let log = dir.join(LOGFILE);
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{exe}</string>
+    <string>run</string>
+    <string>--daemon</string>
+    <string>--interval</string>
+    <string>{interval}</string>
+    <string>--data-dir</string>
+    <string>{dir}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>{log}</string>
+  <key>StandardErrorPath</key><string>{log}</string>
+</dict>
+</plist>
+"#,
+        exe = exe.display(),
+        dir = dir.display(),
+        log = log.display(),
+    );
+    if let Some(parent) = plist.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&plist, xml)?;
+    // load it (older but functional API; -w persists the enabled state)
+    let _ = Command::new("launchctl")
+        .args(["load", "-w"])
+        .arg(&plist)
+        .status();
+    Ok(plist)
+}
+
+/// Remove the launchd LaunchAgent.
+pub fn uninstall() -> io::Result<bool> {
+    let plist = launchd_plist_path()?;
+    if !plist.exists() {
+        return Ok(false);
+    }
+    let _ = Command::new("launchctl")
+        .args(["unload", "-w"])
+        .arg(&plist)
+        .status();
+    fs::remove_file(&plist)?;
+    Ok(true)
+}
+
+/// Is the launchd agent installed?
+pub fn is_installed() -> bool {
+    launchd_plist_path().map(|p| p.exists()).unwrap_or(false)
+}
