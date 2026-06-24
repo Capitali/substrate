@@ -13,8 +13,11 @@
 pub mod boundary;
 pub mod candidate;
 pub mod guard;
+pub mod lineage;
 pub mod loops;
+pub mod mutation;
 pub mod observation;
+pub mod pattern_memory;
 pub mod presence;
 pub mod regression_guard;
 pub mod score;
