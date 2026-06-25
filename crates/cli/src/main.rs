@@ -398,6 +398,9 @@ fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
     if r.theorized {
         flags.push_str(" (theorized)");
     }
+    if r.pursued > 0 {
+        flags.push_str(&format!(" (pursued {})", r.pursued));
+    }
     println!(
         "tick {n}: +{} sensed, {} loops, +{} candidates{llm}{exec} | service {:.2}, presence {:.2}, capacities {:.2}{flags}",
         r.sensed, r.loops, r.new_candidates, r.service, r.presence, r.capacities,

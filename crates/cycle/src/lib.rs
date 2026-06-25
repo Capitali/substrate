@@ -67,6 +67,8 @@ pub struct TickReport {
     pub capacities_diminished: bool,
     /// True when the factory formed a question + theory this tick.
     pub theorized: bool,
+    /// Open threads turned into candidate work this tick.
+    pub pursued: usize,
 }
 
 /// Ask the LLM (boundary-gated) for a one-line hypothesis addressing a loop.
@@ -144,9 +146,10 @@ fn maybe_theorize(
          Recent observations:\n{}\nRecurring loops:\n{}\nSignals: service={service:.2}, \
          presence={presence:.2}, capacities={capacities:.2}.\n\
          From this, propose (1) ONE short question to ask Ian that, grounded in what you \
-         observe, would help you serve him better, and (2) a brief theory about what these \
-         patterns might mean. Reply ONLY as compact JSON: \
-         {{\"question\":\"...\",\"theory\":\"...\"}}.",
+         observe, would help you serve him better; (2) a brief theory about what these \
+         patterns might mean; and (3) a short, concrete direction — one thing you could \
+         DO to act on the theory in service (it becomes work you will test). Reply ONLY \
+         as compact JSON: {{\"question\":\"...\",\"theory\":\"...\",\"direction\":\"...\"}}.",
         recent.join("\n"),
         loops_s.join("\n"),
     );
@@ -157,29 +160,28 @@ fn maybe_theorize(
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) else {
         return Ok(false);
     };
-    let q = v
-        .get("question")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .trim();
-    let theory = v
-        .get("theory")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .trim();
+    let field = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let (q, theory, direction) = (field("question"), field("theory"), field("direction"));
     if q.is_empty() && theory.is_empty() {
         return Ok(false);
     }
     if !q.is_empty() {
-        fs::write(dir.join(QUESTION_FILE), q)?;
+        fs::write(dir.join(QUESTION_FILE), &q)?;
     }
     let seq = thread::load(dir)?.len() + 1;
     thread::append(
         dir,
         &Thread {
             id: format!("thread-{seq:04}"),
-            question: q.to_string(),
-            theory: theory.to_string(),
+            question: q,
+            theory,
+            direction,
             created_at: now,
             status: "open".to_string(),
             origin: "llm".to_string(),
@@ -187,6 +189,43 @@ fn maybe_theorize(
     )?;
     fs::write(dir.join(LAST_THEORY_FILE), now.to_string())?;
     Ok(true)
+}
+
+/// Act on theories: for each `open` thread that carries a direction, create a
+/// candidate to pursue it (status `generated`, so it flows through test → score →
+/// select like any other), and mark the thread `pursued`. Returns how many were
+/// pursued. The factory does what it theorized — bounded by the same selection.
+fn pursue_threads(dir: &Path) -> io::Result<usize> {
+    let threads = thread::load(dir)?;
+    let mut pursued = 0;
+    for t in &threads {
+        if t.status != "open" || t.direction.trim().is_empty() {
+            continue;
+        }
+        let seq = candidate::load(dir)?.len() + 1;
+        let mut c = Candidate::from_loop(
+            &loops::Loop {
+                id: t.id.clone(),
+                name: format!("thread:{}", t.id),
+                description: String::new(),
+                loop_type: "thread".to_string(),
+                observation_ids: String::new(),
+                observation_count: 0,
+                first_seen: t.created_at,
+                last_seen: t.created_at,
+                recurrence_score: 0.0,
+                friction_score: 0.5,
+                opportunity_score: 0.5,
+                confidence: 0.5,
+            },
+            format!("candidate-{seq:04}"),
+        );
+        c.hypothesis = t.direction.clone();
+        candidate::append(dir, &c)?;
+        thread::update_status(dir, &t.id, "pursued")?;
+        pursued += 1;
+    }
+    Ok(pursued)
 }
 
 /// Author a **deterministic, safe** artifact for a candidate: a small shell script
@@ -368,6 +407,9 @@ pub fn tick(
     // 6. Interpret — the factory forms a question + theory (gated, rate-limited).
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
+    // 7. Act — turn open threads into candidate work (executed on a later tick).
+    let pursued = pursue_threads(dir)?;
+
     Ok(TickReport {
         sensed,
         loops: detected.len(),
@@ -383,6 +425,7 @@ pub fn tick(
         capacities: cap.measure,
         capacities_diminished: cap.diminished,
         theorized,
+        pursued,
     })
 }
 
@@ -487,6 +530,36 @@ mod tests {
             r2.new_candidates, 0,
             "loops already covered — no new candidates"
         );
+    }
+
+    #[test]
+    fn pursues_open_threads_into_candidates() {
+        let t = Temp::new("pursue");
+        // a theory the factory holds, with a direction to act on
+        thread::append(
+            &t.0,
+            &Thread {
+                id: "thread-0001".into(),
+                question: "q".into(),
+                theory: "th".into(),
+                direction: "offer a standing morning digest".into(),
+                created_at: 100,
+                status: "open".into(),
+                origin: "llm".into(),
+            },
+        )
+        .unwrap();
+        let r = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        assert_eq!(r.pursued, 1);
+        // a candidate was created with the thread's direction as its hypothesis
+        let cands = candidate::load(&t.0).unwrap();
+        assert!(cands.iter().any(
+            |c| c.hypothesis == "offer a standing morning digest" && c.loop_id == "thread-0001"
+        ));
+        // the thread is marked pursued, so a second tick doesn't re-pursue it
+        assert_eq!(thread::load(&t.0).unwrap()[0].status, "pursued");
+        let r2 = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        assert_eq!(r2.pursued, 0);
     }
 
     #[test]

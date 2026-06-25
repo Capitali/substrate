@@ -151,6 +151,16 @@ impl Observatory {
             1.0,
         );
         let _ = observation::record(&self.data_dir, obs);
+        // close the factory's open question: mark the latest open thread answered.
+        if let Some(open) = self
+            .snapshot
+            .threads
+            .iter()
+            .rev()
+            .find(|t| t.status == "open")
+        {
+            let _ = thread::update_status(&self.data_dir, &open.id, "answered");
+        }
         self.response.clear();
         self.refresh();
     }

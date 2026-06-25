@@ -20,8 +20,12 @@ pub struct Thread {
     pub question: String,
     /// The factory's interpretation of what the patterns mean.
     pub theory: String,
+    /// What the factory could *do* to act on this theory in service — becomes a
+    /// candidate's hypothesis when the thread is pursued. (Optional.)
+    #[serde(default)]
+    pub direction: String,
     pub created_at: i64,
-    /// open | answered | abandoned
+    /// open | pursued | answered | abandoned
     pub status: String,
     /// llm | observer
     pub origin: String,
@@ -33,6 +37,22 @@ pub fn append(dir: &Path, t: &Thread) -> io::Result<()> {
 
 pub fn load(dir: &Path) -> io::Result<Vec<Thread>> {
     store::load(dir, THREADS_FILE)
+}
+
+/// Set a thread's status, rewriting the file. Returns true if found.
+pub fn update_status(dir: &Path, id: &str, status: &str) -> io::Result<bool> {
+    let mut ts = load(dir)?;
+    let mut found = false;
+    for t in &mut ts {
+        if t.id == id {
+            t.status = status.to_string();
+            found = true;
+        }
+    }
+    if found {
+        store::rewrite(dir, THREADS_FILE, &ts)?;
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -49,12 +69,15 @@ mod tests {
             id: "thread-0001".into(),
             question: "What would make mornings calmer?".into(),
             theory: "Repeated status requests suggest a standing digest would help.".into(),
+            direction: "offer a standing morning digest".into(),
             created_at: 100,
             status: "open".into(),
             origin: "llm".into(),
         };
         append(&p, &t).unwrap();
-        assert_eq!(load(&p).unwrap(), vec![t]);
+        assert_eq!(load(&p).unwrap(), vec![t.clone()]);
+        update_status(&p, "thread-0001", "pursued").unwrap();
+        assert_eq!(load(&p).unwrap()[0].status, "pursued");
         let _ = fs::remove_dir_all(&p);
     }
 }
