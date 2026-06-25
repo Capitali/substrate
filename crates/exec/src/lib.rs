@@ -32,6 +32,20 @@ impl Default for Limits {
     }
 }
 
+impl Limits {
+    /// Limits for an **unsandboxed** run (the human set `sandbox_execution=false`): no CPU
+    /// cap, a large output cap, and only a generous wall-clock *liveness* timeout so a
+    /// hung script can't freeze the metabolism. Capability is bound by the constitution
+    /// (the pre-execution review), not by these.
+    pub fn unsandboxed() -> Self {
+        Limits {
+            cpu_secs: 0,
+            wall_secs: 300,
+            output_cap: 65_536,
+        }
+    }
+}
+
 /// The measured outcome of a run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunResult {
@@ -52,9 +66,16 @@ pub struct RunResult {
 /// and killing on overrun.
 pub fn run_script(script_path: &Path, limits: &Limits) -> io::Result<RunResult> {
     let out_path = script_path.with_extension("out");
+    // `cpu_secs == 0` means *no* CPU cap — the unsandboxed path. The wall-clock timeout
+    // below still applies as a liveness bound so a hung script can't freeze the metabolism
+    // (Law I: the familiar must keep serving), even when resource confinement is off.
+    let ulimit = if limits.cpu_secs > 0 {
+        format!("ulimit -t {}; ", limits.cpu_secs)
+    } else {
+        String::new()
+    };
     let cmd = format!(
-        "ulimit -t {cpu}; sh '{script}' > '{out}' 2>&1",
-        cpu = limits.cpu_secs,
+        "{ulimit}sh '{script}' > '{out}' 2>&1",
         script = script_path.display(),
         out = out_path.display(),
     );
@@ -141,6 +162,18 @@ mod tests {
         fs::write(&s, "exit 3\n").unwrap();
         let r = run_script(&s, &Limits::default()).unwrap();
         assert!(!r.exit_ok && !r.timed_out);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn unsandboxed_runs_without_a_cpu_cap() {
+        // no ulimit prefix (cpu_secs == 0), but still captured + measured + liveness-bounded
+        let d = tmp("unsandboxed");
+        let s = d.join("u.sh");
+        fs::write(&s, "echo ran unsandboxed\n").unwrap();
+        let r = run_script(&s, &Limits::unsandboxed()).unwrap();
+        assert!(r.exit_ok && !r.timed_out);
+        assert!(r.output.contains("ran unsandboxed"));
         let _ = fs::remove_dir_all(&d);
     }
 

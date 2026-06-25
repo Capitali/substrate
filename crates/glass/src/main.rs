@@ -681,6 +681,9 @@ fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
                 if t.refused > 0 {
                     parts.push(format!("⛔ refused {} request(s)", t.refused));
                 }
+                if t.declined > 0 {
+                    parts.push(format!("🛑 declined to run {}", t.declined));
+                }
                 if t.structural_changed {
                     parts.push("⚙ world changed".into());
                 }
@@ -841,6 +844,19 @@ fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {
                     ))
                     .small(),
                 );
+                if b.allow_execute || b.allow_authored_execute {
+                    if b.sandbox_execution {
+                        ui.label(egui::RichText::new("sandbox on").small());
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 150, 60),
+                            egui::RichText::new(
+                                "sandbox OFF — bound by the pre-execution review, not a jail",
+                            )
+                            .small(),
+                        );
+                    }
+                }
             }
         });
     });

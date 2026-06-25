@@ -303,6 +303,7 @@ mod tests {
             allow_tool_install: false,
             allow_execute: false,
             allow_authored_execute: false,
+            sandbox_execution: true,
             fs_read: vec!["/Users/ian/".into()],
             fs_write: vec!["/Users/ian/Development/familiar/familiar_data/".into()],
         }

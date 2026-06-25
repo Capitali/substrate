@@ -126,14 +126,26 @@ outward capability (the LLM seam) has fired under an opened boundary
 ([05](05-validation-and-results.md#the-full-cycle-live)).
 
 What is **enforced** today: the per-capability gate (network/LLM/install/execute), path
-read/write scope (three-valued — in / ambiguous / out), and the consequence and
-sensitivity gates. What is **not yet mechanically enforced** — and so remains a binding
-*norm* with the guard as a single chokepoint, not a jail — is confinement of data-flow
-*within* a granted capability: an executed artifact is not filesystem-jailed, and a
-permitted network/LLM call is not egress-filtered against carrying the served's data
-outward. The `external_boundary` and `sensitive` signals must be *supplied* by the
-caller; the guard does not yet discover them autonomously. OS-level sandboxing
-(least-privilege user, namespaces, seccomp) and autonomous discovery of those signals are
-tracked as hardening — see [06-limitations.md](06-limitations.md) and
-[07-roadmap.md](07-roadmap.md). See also
+read/write scope (three-valued — in / ambiguous / out), the consequence and sensitivity
+gates, and — for any executed artifact — a **constitutional pre-execution review**
+(`cycle::review_script`) that reads the script and refuses (records, never runs) plainly
+harmful actions: destructive wipes, reading secrets, exfiltration, privilege escalation,
+or tampering with its own boundary.
+
+**Executing generated code — the sandbox is a human-owned toggle.** Running an artifact
+needs `allow_execute`; running a *model-authored* one needs the further
+`allow_authored_execute`. Both run under a resource sandbox (`ulimit`/wall-timeout) by
+default (`sandbox_execution: true`). The human may set `sandbox_execution: false` — then
+authored code runs **unconfined**, bound by the pre-execution review and a liveness
+timeout only, not by a jail. This is a deliberate, recorded choice consistent with
+"capability is unrestricted; restraint is constitutional."
+
+What is **not yet mechanically enforced** — and so remains a binding *norm* — is full
+confinement of data-flow *within* a granted capability: the pre-execution review is a
+conservative heuristic (it cannot catch every hostile script), a permitted network/LLM
+call is not egress-filtered, and `external_boundary` / `sensitive` must be *supplied* by
+the caller, not autonomously discovered. OS-level sandboxing (least-privilege user,
+namespaces, seccomp), egress filtering, and autonomous signal discovery are tracked as
+hardening — see [06-limitations.md](06-limitations.md) and [07-roadmap.md](07-roadmap.md).
+See also
 [decision-records/0005-human-owned-capability-boundary.md](decision-records/0005-human-owned-capability-boundary.md).

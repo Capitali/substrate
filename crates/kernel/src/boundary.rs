@@ -36,10 +36,21 @@ pub struct Boundary {
     /// A further, sharper gate than `allow_execute`: model-authored code with network
     /// reach is an exfiltration surface the in-process runner does not sandbox.
     pub allow_authored_execute: bool,
+    /// Run executed artifacts under the resource sandbox (`ulimit`/wall-timeout)?
+    /// Default **true** (safe). When the human sets it false, artifacts run without
+    /// resource confinement — bound then by the constitution (the pre-execution review
+    /// that refuses plainly harmful scripts) and a generous liveness timeout only, not by
+    /// a jail. A deliberate, human-owned choice; see `docs/boundaries.md`.
+    #[serde(default = "default_true")]
+    pub sandbox_execution: bool,
     /// Path prefixes the factory may read.
     pub fs_read: Vec<String>,
     /// Path prefixes the factory may write.
     pub fs_write: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Boundary {
@@ -58,6 +69,7 @@ impl Boundary {
             allow_tool_install: false,
             allow_execute: false,
             allow_authored_execute: false,
+            sandbox_execution: true,
             fs_read: Vec::new(),
             fs_write: Vec::new(),
         }
@@ -132,6 +144,23 @@ mod tests {
         // unspecified capabilities stay closed (fail-safe partial parse)
         assert!(!b.allow_tool_install);
         assert!(b.fs_write.is_empty());
+    }
+
+    #[test]
+    fn sandbox_execution_defaults_on_when_unspecified() {
+        let t = Temp::new("sandbox_default");
+        // a policy that opens execution but says nothing about the sandbox
+        fs::write(
+            t.0.join(BOUNDARY_FILE),
+            r#"{"phase":"phase-1","allow_execute":true}"#,
+        )
+        .unwrap();
+        let b = load(&t.0).unwrap();
+        assert!(b.allow_execute);
+        assert!(
+            b.sandbox_execution,
+            "the safe default is sandboxed; turning it off must be an explicit human choice"
+        );
     }
 
     #[test]

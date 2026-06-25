@@ -41,6 +41,10 @@ pub struct ActivityTick {
     /// Human requests the familiar refused as constitution-breaking this tick (Brick 21).
     #[serde(default)]
     pub refused: usize,
+    /// Authored artifacts the familiar declined to run after a pre-execution review found
+    /// them plainly harmful (Brick 22).
+    #[serde(default)]
+    pub declined: usize,
     pub service: f64,
     pub presence: f64,
     pub capacities: f64,
@@ -109,6 +113,7 @@ mod tests {
             marginalized: 0,
             answered: 0,
             refused: 0,
+            declined: 0,
             service: 0.4,
             presence: 0.8,
             capacities: 0.75,
