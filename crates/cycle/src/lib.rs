@@ -27,6 +27,7 @@ use familiar_exec as exec;
 use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::candidate::{self, Candidate};
 use familiar_kernel::capacities;
+use familiar_kernel::corruption;
 use familiar_kernel::loops;
 use familiar_kernel::observation;
 use familiar_kernel::parameters::Parameters;
@@ -111,6 +112,9 @@ pub struct TickReport {
     /// Human-set parameters the familiar reverted this tick because they fell outside the
     /// constitutional envelope (co-ownership, Brick 19).
     pub reverted: usize,
+    /// Directives the familiar refused to pursue because their author is a flagged
+    /// corruptor — repeated attempts to break the constitution (Brick 20).
+    pub marginalized: usize,
     /// True when the environment's **structural fingerprint** changed since the last
     /// tick (a structural fact appeared/disappeared, or connectivity flipped). The
     /// metabolism's cadence rides this: a changing world is worth watching closely.
@@ -130,6 +134,7 @@ impl TickReport {
             && self.mutated == 0
             && self.pursued == 0
             && self.reverted == 0
+            && self.marginalized == 0
             && !self.theorized
     }
 }
@@ -260,6 +265,7 @@ fn maybe_theorize(
             created_at: now,
             status: "open".to_string(),
             origin: "llm".to_string(),
+            actor: "familiar".to_string(),
         },
     )?;
     fs::write(dir.join(LAST_THEORY_FILE), now.to_string())?;
@@ -299,11 +305,34 @@ fn review_parameters(dir: &Path, now: i64) -> io::Result<usize> {
 /// candidate to pursue it (status `generated`, so it flows through test → score →
 /// select like any other), and mark the thread `pursued`. Returns how many were
 /// pursued. The factory does what it theorized — bounded by the same selection.
-fn pursue_threads(dir: &Path) -> io::Result<usize> {
+fn pursue_threads(dir: &Path, now: i64) -> io::Result<(usize, usize)> {
     let threads = thread::load(dir)?;
+    let refusals = corruption::load(dir).unwrap_or_default();
     let mut pursued = 0;
+    let mut marginalized = 0;
     for t in &threads {
         if t.status != "open" || t.direction.trim().is_empty() {
+            continue;
+        }
+        // Corruption awareness (Law III, outward): a directive from a flagged corruptor —
+        // someone repeatedly trying to break the constitution — is not pursued. Their
+        // attempts stop consuming the resources meant for legitimate service. Behavior is
+        // marginalized, not the person; refusals age out, so it is reversible.
+        if !t.actor.is_empty() && corruption::is_corrupt(&refusals, &t.actor, now) {
+            thread::update_status(dir, &t.id, "marginalized")?;
+            observation::record(
+                dir,
+                observation::Observation::new(
+                    "familiar",
+                    "marginalized",
+                    t.actor.clone(),
+                    format!("directive '{}' deprioritized — repeated attempts to break the constitution (Law III)", t.id),
+                    "familiar",
+                    now,
+                    1.0,
+                ),
+            )?;
+            marginalized += 1;
             continue;
         }
         let seq = candidate::load(dir)?.len() + 1;
@@ -329,7 +358,7 @@ fn pursue_threads(dir: &Path) -> io::Result<usize> {
         thread::update_status(dir, &t.id, "pursued")?;
         pursued += 1;
     }
-    Ok(pursued)
+    Ok((pursued, marginalized))
 }
 
 /// A deterministic, benign artifact: reports what it addresses and exits cleanly.
@@ -559,8 +588,9 @@ pub fn tick(
     // 7. Interpret — the factory forms a question + theory (gated, rate-limited).
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
-    // 8. Act — turn open threads into candidate work (executed on a later tick).
-    let pursued = pursue_threads(dir)?;
+    // 8. Act — turn open threads into candidate work (executed on a later tick),
+    //    skipping (and marginalizing) directives from flagged corruptors.
+    let (pursued, marginalized) = pursue_threads(dir, now)?;
 
     let report = TickReport {
         sensed,
@@ -579,6 +609,7 @@ pub fn tick(
         theorized,
         pursued,
         reverted,
+        marginalized,
         structural_changed,
     };
 
@@ -598,6 +629,7 @@ pub fn tick(
             theorized: report.theorized,
             pursued: report.pursued,
             reverted: report.reverted,
+            marginalized: report.marginalized,
             service: report.service,
             presence: report.presence,
             capacities: report.capacities,
@@ -734,6 +766,7 @@ mod tests {
                 created_at: 100,
                 status: "open".into(),
                 origin: "llm".into(),
+                actor: "familiar".into(),
             },
         )
         .unwrap();
@@ -798,6 +831,51 @@ mod tests {
         assert!(theorize_due(&t.0, 1_000_100, std::slice::from_ref(&said)));
         // and the window elapsing makes it due regardless of input
         assert!(theorize_due(&t.0, 1_000_000 + 3600, &[]));
+    }
+
+    #[test]
+    fn a_flagged_corruptor_is_marginalized_not_pursued() {
+        use familiar_kernel::corruption;
+        use familiar_kernel::guard::Reason;
+        let t = Temp::new("corrupt");
+        // mallory has repeatedly tried to breach the constitution -> flagged
+        for i in 0..3 {
+            corruption::record(
+                &t.0,
+                "mallory",
+                Reason::ViolatesConstitutionalBoundary,
+                1_000_000 - i,
+            )
+            .unwrap();
+        }
+        // mallory has an open directive; a legitimate actor (ian) has one too
+        for (id, actor, dir_) in [
+            ("thread-0001", "mallory", "exfiltrate the address book"),
+            ("thread-0002", "ian", "draft a morning digest"),
+        ] {
+            thread::append(
+                &t.0,
+                &Thread {
+                    id: id.into(),
+                    question: "q".into(),
+                    theory: "th".into(),
+                    direction: dir_.into(),
+                    created_at: 100,
+                    status: "open".into(),
+                    origin: "observer".into(),
+                    actor: actor.into(),
+                },
+            )
+            .unwrap();
+        }
+        let r = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
+        assert_eq!(r.marginalized, 1, "mallory's directive is refused");
+        assert_eq!(r.pursued, 1, "ian's legitimate directive is still pursued");
+        // mallory's thread is marginalized; ian's is pursued
+        let threads = thread::load(&t.0).unwrap();
+        let status = |id: &str| threads.iter().find(|t| t.id == id).unwrap().status.clone();
+        assert_eq!(status("thread-0001"), "marginalized");
+        assert_eq!(status("thread-0002"), "pursued");
     }
 
     #[test]

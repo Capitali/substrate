@@ -31,6 +31,10 @@ pub struct ActivityTick {
     /// Human-set parameters the familiar reverted this tick (co-ownership, Brick 19).
     #[serde(default)]
     pub reverted: usize,
+    /// Directives the familiar refused to pursue this tick because their author is a
+    /// flagged corruptor (Brick 20).
+    #[serde(default)]
+    pub marginalized: usize,
     pub service: f64,
     pub presence: f64,
     pub capacities: f64,
@@ -96,6 +100,7 @@ mod tests {
             theorized: false,
             pursued: 0,
             reverted: 0,
+            marginalized: 0,
             service: 0.4,
             presence: 0.8,
             capacities: 0.75,

@@ -25,10 +25,16 @@ pub struct Thread {
     #[serde(default)]
     pub direction: String,
     pub created_at: i64,
-    /// open | pursued | answered | abandoned
+    /// open | pursued | answered | abandoned | marginalized
     pub status: String,
     /// llm | observer
     pub origin: String,
+    /// Who authored the directive — the actor whose reputation governs whether it is
+    /// pursued (corruption awareness, Brick 20). `"familiar"` for its own theories;
+    /// `"ian"` (or another human) for observer answers. Empty = unattributed (always
+    /// pursued). `#[serde(default)]` so older threads still load.
+    #[serde(default)]
+    pub actor: String,
 }
 
 pub fn append(dir: &Path, t: &Thread) -> io::Result<()> {
@@ -73,6 +79,7 @@ mod tests {
             created_at: 100,
             status: "open".into(),
             origin: "llm".into(),
+            actor: "familiar".into(),
         };
         append(&p, &t).unwrap();
         assert_eq!(load(&p).unwrap(), vec![t.clone()]);

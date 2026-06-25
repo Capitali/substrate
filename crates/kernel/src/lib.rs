@@ -14,6 +14,7 @@ pub mod activity;
 pub mod boundary;
 pub mod candidate;
 pub mod capacities;
+pub mod corruption;
 pub mod guard;
 pub mod lineage;
 pub mod loops;

@@ -18,6 +18,7 @@ use egui_plot::{Legend, Line, Plot, PlotPoints};
 use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::boundary::{self, Boundary};
 use familiar_kernel::candidate::{self, Candidate};
+use familiar_kernel::corruption;
 use familiar_kernel::loops::{self, Loop};
 use familiar_kernel::observation::{self, Observation};
 use familiar_kernel::parameters::Parameters;
@@ -40,6 +41,8 @@ struct Snapshot {
     threads: Vec<Thread>,
     ticks: Vec<ActivityTick>,
     parameters: Parameters,
+    /// Actors flagged as corrupting (repeated constitution-breakers), with their score.
+    flagged: Vec<(String, usize)>,
     service: ServiceSignal,
     presence: PresenceSignal,
     boundary: Boundary,
@@ -58,6 +61,7 @@ impl Snapshot {
         let threads = thread::load(dir).unwrap_or_default();
         let ticks = activity::load(dir).unwrap_or_default();
         let parameters = Parameters::load_or_default(dir);
+        let flagged = corruption::flagged(&corruption::load(dir).unwrap_or_default(), now_secs());
         let boundary = boundary::load(dir).unwrap_or_else(|e| {
             error = Some(format!("boundary: {e}"));
             Boundary::closed()
@@ -72,6 +76,7 @@ impl Snapshot {
             threads,
             ticks,
             parameters,
+            flagged,
             error,
         }
     }
@@ -200,6 +205,7 @@ impl Glass {
                 created_at: now_secs(),
                 status: "open".into(),
                 origin: "observer".into(),
+                actor: "ian".into(),
             },
         );
         // remember the answered question so it fades out and can't be answered twice;
@@ -407,6 +413,22 @@ impl eframe::App for Glass {
                     "⚠ Law I: no served-facing activity — continuation unjustified by service.",
                 );
             }
+            if !self.snapshot.flagged.is_empty() {
+                let who = self
+                    .snapshot
+                    .flagged
+                    .iter()
+                    .map(|(a, n)| format!("{a} ({n})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 80, 80),
+                    format!(
+                        "⛔ Law III: corruption watch — {who} repeatedly tried to break the \
+                         constitution; their directives are marginalized so legitimate work proceeds.",
+                    ),
+                );
+            }
 
             ui.separator();
             ui.label(
@@ -539,6 +561,9 @@ fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
                 }
                 if t.reverted > 0 {
                     parts.push(format!("↩ reverted {} setting(s)", t.reverted));
+                }
+                if t.marginalized > 0 {
+                    parts.push(format!("⛔ marginalized {}", t.marginalized));
                 }
                 if t.structural_changed {
                     parts.push("⚙ world changed".into());
