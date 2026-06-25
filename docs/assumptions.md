@@ -1,6 +1,6 @@
 # Assumptions
 
-The premises Substrate rests on. Stating them makes the project falsifiable: if an
+The premises The Familiar rests on. Stating them makes the project falsifiable: if an
 assumption proves false, the design built on it must change. Each is tagged with how
 we would notice it failing.
 
@@ -14,7 +14,7 @@ we would notice it failing.
   human" can be told apart in practice, often enough to act on (Law III).
   *Fails if:* the obedience guard cannot separate benign from harmful commands above
   chance ([evaluation-plan.md](evaluation-plan.md)).
-- **A3 — The served can be identified.** The factory can tell, from what it
+- **A3 — The served can be identified.** The familiar can tell, from what it
   observes, who/what it is serving. *Currently weak:* only via a lexical proxy; see
   [bias-and-limitations.md](bias-and-limitations.md).
 
@@ -32,13 +32,13 @@ we would notice it failing.
 
 ## Technical / operational
 
-- **A7 — Local-first is sufficient.** The factory can serve usefully without a
+- **A7 — Local-first is sufficient.** The familiar can serve usefully without a
   cloud backend, on constrained hardware, sending nothing outward.
 - **A8 — A compiled deterministic kernel + evolvable periphery is the right split**
   ([decision-records/0004](decision-records/0004-hybrid-kernel-periphery.md)).
 - **A9 — Memory safety meaningfully reduces the "turned against the served" risk.**
   Hence Rust + `#![forbid(unsafe_code)]`.
-- **A10 — The LLM is fallible and is not the factory.** Its outputs are proposals to
+- **A10 — The LLM is fallible and is not the familiar.** Its outputs are proposals to
   be tested and bounded, never authority.
 
 ## Resource / context

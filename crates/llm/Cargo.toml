@@ -1,9 +1,9 @@
 [package]
-name = "substrate-llm"
+name = "familiar-llm"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description = "The LLM seam (periphery) — a boundary-gated consult. The model is not the factory."
 
 [dependencies]
-substrate-kernel.workspace = true
+familiar-kernel.workspace = true

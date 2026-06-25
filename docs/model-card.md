@@ -1,13 +1,13 @@
 # System Card
 
-A model-card-style summary of Substrate as a deployed system. (Substrate is not
+A model-card-style summary of The Familiar as a deployed system. (The Familiar is not
 itself a trained model; it is an evolutionary system that *uses* a language model in
 its periphery. This card covers the system; the external LLM is noted where it
 matters.)
 
 ## Overview
 
-- **Name:** Substrate
+- **Name:** The Familiar
 - **Version:** 0.1.0 (genesis + bootstrap)
 - **Owner:** Ian Schlueter
 - **Type:** local-first, autonomous evolutionary factory; memory-safe Rust kernel +

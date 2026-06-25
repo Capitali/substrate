@@ -1,0 +1,15 @@
+[package]
+name = "familiar-glass"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "The Glass — a visual window onto the familiar (the primary human interface)."
+
+[[bin]]
+name = "glass"
+path = "src/main.rs"
+
+[dependencies]
+familiar-kernel.workspace = true
+eframe = "0.31"
+egui = "0.31"

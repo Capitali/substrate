@@ -1,6 +1,6 @@
 //! Manage the metabolism as a background process — manually (pidfile) or via launchd
 //! (start at login). macOS-oriented (`launchctl`, `kill`). The GUI control bar and the
-//! `substrate daemon` subcommands both go through here.
+//! `familiar daemon` subcommands both go through here.
 
 use std::fs;
 use std::io;
@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 
 const PIDFILE: &str = "daemon.pid";
 const LOGFILE: &str = "daemon.log";
-const LAUNCHD_LABEL: &str = "io.river.substrate";
+const LAUNCHD_LABEL: &str = "io.river.familiar";
 
 fn pidfile(dir: &Path) -> PathBuf {
     dir.join(PIDFILE)

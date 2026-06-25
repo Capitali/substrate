@@ -1,11 +1,11 @@
-# ADR-0006 — A native GUI (the Observatory) via egui/eframe
+# ADR-0006 — A native GUI (the Glass) via egui/eframe
 
 - **Status:** accepted
 - **Date:** 2026-06-24
 
 ## Context
 
-The factory needs a human interface that is **visual**, not a command line — a
+The familiar needs a human interface that is **visual**, not a command line — a
 window onto its truth (observations) and the law-signals (service, presence,
 boundary). It must stay **local-first** (no telemetry, no listening sockets — Law
 III restraint), run on the operator's machine, and not compromise the kernel's
@@ -13,7 +13,7 @@ minimal-dependency, `#![forbid(unsafe_code)]` discipline.
 
 ## Decision
 
-Build **the Observatory**, a native GUI, with **egui/eframe** (immediate-mode, pure
+Build **the Glass**, a native GUI, with **egui/eframe** (immediate-mode, pure
 Rust), in its own crate `crates/observatory` (binary `observatory`).
 
 - The GUI is **read-only**: it watches state and never mutates the observation log,
@@ -49,5 +49,5 @@ Rust), in its own crate `crates/observatory` (binary `observatory`).
 
 ## Status history
 
-- 2026-06-24 — accepted. First Observatory shows the Three Laws as live meters plus
+- 2026-06-24 — accepted. First Glass shows the Three Laws as live meters plus
   the observation log; it will grow as the kernel does.

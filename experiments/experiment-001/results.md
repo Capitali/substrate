@@ -34,7 +34,7 @@ Observed: `0.00` → `0.40` as two served-facing observations were added; the
 ## Verdict
 
 - **H1, H2, H3 supported.** Law I is measurable from the observation log alone at
-  bootstrap, and the factory reports the unjustified-continuation condition.
+  bootstrap, and the familiar reports the unjustified-continuation condition.
 - **Predicted scope limit confirmed:** "betty" is not served-facing under the
   lexical classifier — expected; awaits entity resolution.
 

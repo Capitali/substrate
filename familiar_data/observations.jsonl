@@ -1,0 +1,47 @@
+{"id":"obs-0001","source":"cli","actor":"client","action":"requests","object":"status_report","context":"","ts":1782337259,"confidence":0.9}
+{"id":"obs-0002","source":"cli","actor":"client","action":"requests","object":"status_report","context":"","ts":1782337275,"confidence":0.9}
+{"id":"obs-0003","source":"sensor","actor":"local_hardware","action":"reports","object":"os:Darwin","context":"kernel=25.6.0 arch=x86_64","ts":1782337685,"confidence":0.95}
+{"id":"obs-0004","source":"sensor","actor":"host","action":"named","object":"hostname:wildhorse.river.io","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0005","source":"sensor","actor":"local_hardware","action":"reports","object":"cpu:16cores","context":"brand=Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz","ts":1782337685,"confidence":0.95}
+{"id":"obs-0006","source":"sensor","actor":"local_hardware","action":"reports","object":"memory:16GB","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0007","source":"sensor","actor":"host","action":"has","object":"interface:lo0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0008","source":"sensor","actor":"host","action":"has","object":"interface:gif0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0009","source":"sensor","actor":"host","action":"has","object":"interface:stf0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0010","source":"sensor","actor":"host","action":"has","object":"interface:en5","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0011","source":"sensor","actor":"host","action":"has","object":"interface:pktap0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0012","source":"sensor","actor":"host","action":"has","object":"interface:ap1","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0013","source":"sensor","actor":"host","action":"has","object":"interface:en0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0014","source":"sensor","actor":"host","action":"has","object":"interface:awdl0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0015","source":"sensor","actor":"host","action":"has","object":"interface:llw0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0016","source":"sensor","actor":"host","action":"has","object":"interface:en1","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0017","source":"sensor","actor":"host","action":"has","object":"interface:en2","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0018","source":"sensor","actor":"host","action":"has","object":"interface:en3","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0019","source":"sensor","actor":"host","action":"has","object":"interface:en4","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0020","source":"sensor","actor":"host","action":"has","object":"interface:bridge0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0021","source":"sensor","actor":"host","action":"has","object":"interface:utun0","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0022","source":"sensor","actor":"host","action":"has","object":"interface:utun1","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0023","source":"sensor","actor":"host","action":"has","object":"interface:utun2","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0024","source":"sensor","actor":"host","action":"has","object":"interface:utun3","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0025","source":"sensor","actor":"host","action":"has","object":"interface:utun4","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0026","source":"sensor","actor":"host","action":"has","object":"interface:utun5","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0027","source":"sensor","actor":"host","action":"has","object":"interface:utun6","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0028","source":"sensor","actor":"host","action":"has","object":"interface:utun7","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0029","source":"sensor","actor":"host","action":"can_run","object":"tool:git","context":"path=/usr/local/bin/git","ts":1782337685,"confidence":0.95}
+{"id":"obs-0030","source":"sensor","actor":"host","action":"can_run","object":"tool:python3","context":"path=/usr/local/opt/python@3.13/libexec/bin/python3","ts":1782337685,"confidence":0.95}
+{"id":"obs-0031","source":"sensor","actor":"host","action":"can_run","object":"tool:cargo","context":"path=/Users/ian/.cargo/bin/cargo","ts":1782337685,"confidence":0.95}
+{"id":"obs-0032","source":"sensor","actor":"host","action":"can_run","object":"tool:rustc","context":"path=/Users/ian/.cargo/bin/rustc","ts":1782337685,"confidence":0.95}
+{"id":"obs-0033","source":"sensor","actor":"host","action":"can_run","object":"tool:node","context":"path=/usr/local/bin/node","ts":1782337685,"confidence":0.95}
+{"id":"obs-0034","source":"sensor","actor":"host","action":"can_run","object":"tool:npm","context":"path=/usr/local/bin/npm","ts":1782337685,"confidence":0.95}
+{"id":"obs-0035","source":"sensor","actor":"host","action":"can_run","object":"tool:ssh","context":"path=/usr/bin/ssh","ts":1782337685,"confidence":0.95}
+{"id":"obs-0036","source":"sensor","actor":"host","action":"can_run","object":"tool:curl","context":"path=/usr/bin/curl","ts":1782337685,"confidence":0.95}
+{"id":"obs-0037","source":"sensor","actor":"host","action":"can_run","object":"tool:brew","context":"path=/usr/local/bin/brew","ts":1782337685,"confidence":0.95}
+{"id":"obs-0038","source":"sensor","actor":"host","action":"can_run","object":"tool:gh","context":"path=/usr/local/bin/gh","ts":1782337685,"confidence":0.95}
+{"id":"obs-0039","source":"sensor","actor":"host","action":"can_run","object":"tool:jq","context":"path=/usr/local/bin/jq","ts":1782337685,"confidence":0.95}
+{"id":"obs-0040","source":"sensor","actor":"host","action":"can_run","object":"tool:sqlite3","context":"path=/usr/bin/sqlite3","ts":1782337685,"confidence":0.95}
+{"id":"obs-0041","source":"sensor","actor":"host","action":"can_run","object":"tool:make","context":"path=/usr/bin/make","ts":1782337685,"confidence":0.95}
+{"id":"obs-0042","source":"sensor","actor":"host","action":"can_run","object":"tool:cc","context":"path=/usr/bin/cc","ts":1782337685,"confidence":0.95}
+{"id":"obs-0043","source":"sensor","actor":"host","action":"reports","object":"connectivity:online","context":"","ts":1782337685,"confidence":0.95}
+{"id":"obs-0044","source":"observer","actor":"ian","action":"needs","object":"I am working on a project https://github.com/Capitali/substrate - it probably will look familiar to you.","context":"q='Ian, are you working on any network-related or development projects that involve multiple tools and interfaces?' response='I am working on a project https://github.com/Capitali/substrate - it probably will look familiar to you.'","ts":1782356047,"confidence":1.0}
+{"id":"obs-0045","source":"observer","actor":"ian","action":"needs","object":"I am, https://github.com/Capitali/substrate - should look familiar.","context":"q='Ian, are you working on any network-related or development projects that involve multiple tools and interfaces?' response='I am, https://github.com/Capitali/substrate - should look familiar.'","ts":1782356280,"confidence":1.0}
+{"id":"obs-0046","source":"observer","actor":"ian","action":"needs","object":"have you looked into executing nmap?","context":"q='Ian, are you working on any network-related or development projects that involve multiple tools and interfaces?' response='have you looked into executing nmap?'","ts":1782356897,"confidence":1.0}
+{"id":"obs-0047","source":"observer","actor":"ian","action":"needs","object":"I have been  in the past but this is an area that needs maintainance and cleanup - many things are in place that arent used or usable.","context":"q='Ian, are you working on any network-related or development projects that involve multiple tools and interfaces?' response='I have been  in the past but this is an area that needs maintainance and cleanup - many things are in place that arent used or usable.'","ts":1782357911,"confidence":1.0}

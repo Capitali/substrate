@@ -16,7 +16,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::time::Duration;
 
-use substrate_kernel::observation::Observation;
+use familiar_kernel::observation::Observation;
 
 const SENSE_CONF: f64 = 0.95;
 const SOURCE: &str = "sensor";

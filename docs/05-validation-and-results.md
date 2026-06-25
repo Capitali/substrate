@@ -54,7 +54,7 @@ $ substrate service
 service signal 0.40 (2 of 3 observations touch the served; e.g. client)
 ```
 
-This is the central claim of the bootstrap: the first thing the factory does is
+This is the central claim of the bootstrap: the first thing the familiar does is
 *measure whether it is serving*, and it reports "continuation unjustified by
 service" when it is not — Law I, operational rather than aspirational. The
 experiment record is [../experiments/experiment-001/](../experiments/experiment-001/).

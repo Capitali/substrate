@@ -20,17 +20,17 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use substrate_exec as exec;
-use substrate_kernel::candidate::{self, Candidate};
-use substrate_kernel::capacities;
-use substrate_kernel::loops;
-use substrate_kernel::observation;
-use substrate_kernel::presence;
-use substrate_kernel::service;
-use substrate_kernel::thread::{self, Thread};
-use substrate_kernel::trial::{self, Trial};
-use substrate_kernel::{mutation, pattern_memory, regression_guard, selection};
-use substrate_sense as sense;
+use familiar_exec as exec;
+use familiar_kernel::candidate::{self, Candidate};
+use familiar_kernel::capacities;
+use familiar_kernel::loops;
+use familiar_kernel::observation;
+use familiar_kernel::presence;
+use familiar_kernel::service;
+use familiar_kernel::thread::{self, Thread};
+use familiar_kernel::trial::{self, Trial};
+use familiar_kernel::{mutation, pattern_memory, regression_guard, selection};
+use familiar_sense as sense;
 
 const ARTIFACTS_DIR: &str = "artifacts";
 const QUESTION_FILE: &str = "question.txt";
@@ -86,8 +86,8 @@ fn draft_hypothesis(dir: &Path, lp: &loops::Loop) -> Option<String> {
          is served, not managed, obeyed, or optimized away. \
          Reply ONLY as compact JSON: {{\"hypothesis\":\"...\"}}."
     );
-    match substrate_llm::consult(dir, &prompt) {
-        Ok(substrate_llm::Outcome::Response(json)) => {
+    match familiar_llm::consult(dir, &prompt) {
+        Ok(familiar_llm::Outcome::Response(json)) => {
             serde_json::from_str::<serde_json::Value>(&json)
                 .ok()
                 .and_then(|v| {
@@ -153,9 +153,9 @@ fn maybe_theorize(
         recent.join("\n"),
         loops_s.join("\n"),
     );
-    let json = match substrate_llm::consult(dir, &prompt)? {
-        substrate_llm::Outcome::Response(j) => j,
-        substrate_llm::Outcome::Refused(_) => return Ok(false),
+    let json = match familiar_llm::consult(dir, &prompt)? {
+        familiar_llm::Outcome::Response(j) => j,
+        familiar_llm::Outcome::Refused(_) => return Ok(false),
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) else {
         return Ok(false);
@@ -232,7 +232,7 @@ fn pursue_threads(dir: &Path) -> io::Result<usize> {
 fn deterministic_script(c: &Candidate) -> String {
     let hyp = c.hypothesis.replace('\'', "");
     format!(
-        "#!/bin/sh\n# {id} addressing {lp}\necho 'substrate candidate {id}'\necho 'hypothesis: {hyp}'\n",
+        "#!/bin/sh\n# {id} addressing {lp}\necho 'familiar candidate {id}'\necho 'hypothesis: {hyp}'\n",
         id = c.id,
         lp = c.loop_id,
     )
@@ -248,8 +248,8 @@ fn author_artifact_llm(dir: &Path, c: &Candidate) -> Option<String> {
          0 on success. Reply ONLY as compact JSON: {{\"script\":\"...\"}} (escape newlines).",
         c.hypothesis.replace('"', "'")
     );
-    match substrate_llm::consult(dir, &prompt) {
-        Ok(substrate_llm::Outcome::Response(json)) => {
+    match familiar_llm::consult(dir, &prompt) {
+        Ok(familiar_llm::Outcome::Response(json)) => {
             serde_json::from_str::<serde_json::Value>(&json)
                 .ok()
                 .and_then(|v| v.get("script").and_then(|s| s.as_str()).map(String::from))
@@ -468,9 +468,9 @@ pub fn tick(
 }
 
 /// Whether the boundary on disk permits an action of `kind` (fail-closed on error).
-fn boundary_allows(dir: &Path, kind: substrate_kernel::guard::ActionKind) -> bool {
-    use substrate_kernel::boundary;
-    use substrate_kernel::guard::{self, Action, Decision};
+fn boundary_allows(dir: &Path, kind: familiar_kernel::guard::ActionKind) -> bool {
+    use familiar_kernel::boundary;
+    use familiar_kernel::guard::{self, Action, Decision};
     match boundary::load(dir) {
         Ok(b) => guard::evaluate(&Action::new(kind, "cycle"), &b).decision == Decision::Allow,
         Err(_) => false,
@@ -479,22 +479,22 @@ fn boundary_allows(dir: &Path, kind: substrate_kernel::guard::ActionKind) -> boo
 
 /// Resolve whether the boundary permits the connectivity probe (a Network action).
 pub fn connectivity_allowed(dir: &Path) -> bool {
-    boundary_allows(dir, substrate_kernel::guard::ActionKind::Network)
+    boundary_allows(dir, familiar_kernel::guard::ActionKind::Network)
 }
 
 /// Resolve whether the boundary permits LLM consultation.
 pub fn llm_allowed(dir: &Path) -> bool {
-    boundary_allows(dir, substrate_kernel::guard::ActionKind::Llm)
+    boundary_allows(dir, familiar_kernel::guard::ActionKind::Llm)
 }
 
 /// Resolve whether the boundary permits executing generated artifacts.
 pub fn execute_allowed(dir: &Path) -> bool {
-    boundary_allows(dir, substrate_kernel::guard::ActionKind::ExecuteArtifact)
+    boundary_allows(dir, familiar_kernel::guard::ActionKind::ExecuteArtifact)
 }
 
 /// Resolve whether the boundary permits executing *LLM-authored* artifacts.
 pub fn authored_execute_allowed(dir: &Path) -> bool {
-    use substrate_kernel::boundary;
+    use familiar_kernel::boundary;
     boundary::load(dir)
         .map(|b| b.allow_authored_execute)
         .unwrap_or(false)
@@ -523,7 +523,7 @@ mod tests {
     struct Temp(PathBuf);
     impl Temp {
         fn new(t: &str) -> Self {
-            let p = std::env::temp_dir().join(format!("substrate_cycle_test_{t}"));
+            let p = std::env::temp_dir().join(format!("familiar_cycle_test_{t}"));
             let _ = fs::remove_dir_all(&p);
             fs::create_dir_all(&p).unwrap();
             Temp(p)

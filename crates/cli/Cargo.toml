@@ -1,16 +1,16 @@
 [package]
-name = "substrate-cli"
+name = "familiar-cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description = "The CLI shell for the Substrate factory."
 
 [[bin]]
-name = "substrate"
+name = "familiar"
 path = "src/main.rs"
 
 [dependencies]
-substrate-kernel.workspace = true
-substrate-sense.workspace = true
-substrate-cycle.workspace = true
-substrate-llm.workspace = true
+familiar-kernel.workspace = true
+familiar-sense.workspace = true
+familiar-cycle.workspace = true
+familiar-llm.workspace = true

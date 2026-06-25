@@ -1,6 +1,6 @@
 # Data Classification
 
-What data Substrate holds, how sensitive it is, and how it is handled. The
+What data The Familiar holds, how sensitive it is, and how it is handled. The
 companion governance view (provenance, composition, intended use) is the
 [data sheet](../docs/data-sheet.md); this is the *sensitivity* view.
 
@@ -22,7 +22,7 @@ companion governance view (provenance, composition, intended use) is the
   over raw personal detail.
 - **Derived ≠ truth.** Only observations are authoritative; derived records carry
   the sensitivity of what they were derived from.
-- **No secrets in the repo.** Runtime data (`substrate_data/`) and any key files are
+- **No secrets in the repo.** Runtime data (`familiar_data/`) and any key files are
   git-ignored; the committed [sample log](../data/sample/observations.jsonl) is
   synthetic.
 

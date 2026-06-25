@@ -1,10 +1,10 @@
 # 04 — Methodology (Methods II)
 
-How Substrate evolves, and the discipline that keeps that evolution honest. The
-method is subordinate to the Three Laws: it is *how the factory gets better at
+How The Familiar evolves, and the discipline that keeps that evolution honest. The
+method is subordinate to the Three Laws: it is *how the familiar gets better at
 serving*, nothing more.
 
-## The factory cycle
+## The familiar cycle
 
 ```
 Observe → Name → Interpret → Generate → Bound → Test → Score → Select → Inherit → Return
@@ -31,7 +31,7 @@ from v1 and encoded as tests as the kernel lands (see
 
 | Invariant | What it guarantees |
 |---|---|
-| Promotion threshold `= 0.70 + rigor × 0.25` | Selection pressure self-regulates; the bar rises when the factory promotes too easily. |
+| Promotion threshold `= 0.70 + rigor × 0.25` | Selection pressure self-regulates; the bar rises when the familiar promotes too easily. |
 | Pattern suppression only if `neg > pos` (never empties the trait set) | Evidence isn't over-suppressed; variation never collapses to nothing. |
 | Rigor = noisy-OR(promotion-rate, redundancy), confidence ramps with sample size | Two independent laxity signals, not over-eager on small samples. |
 | Weismann barrier: somatic state never feeds the genotype/spec | Heredity integrity — outcomes don't silently rewrite DNA. |
@@ -42,9 +42,9 @@ from v1 and encoded as tests as the kernel lands (see
 ## Making the laws measurable
 
 A constitution that cannot be measured is a wish. The defining methodological work
-is turning each law into a signal the factory computes and acts on:
+is turning each law into a signal the familiar computes and acts on:
 
-- **Law I → the service signal** — to what degree is the factory's attention/effort
+- **Law I → the service signal** — to what degree is the familiar's attention/effort
   on the humans it serves? (Built; [`service.rs`](../crates/kernel/src/service.rs).)
 - **Law II → the presence signal** — are the served present and engaged? Withdrawal
   is a first-class failure state, not an equilibrium. (Planned.)

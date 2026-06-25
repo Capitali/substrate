@@ -5,7 +5,7 @@
 
 ## Why nothing here yet
 
-Substrate is at bootstrap: the metabolism (the autonomous cycle) is not yet built,
+The Familiar is at bootstrap: the metabolism (the autonomous cycle) is not yet built,
 so there is no steady-state workload to benchmark. Publishing fabricated or
 premature numbers would violate the honesty this evidence repository is for.
 

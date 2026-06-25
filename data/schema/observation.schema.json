@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Capitali/substrate/blob/main/data/schema/observation.schema.json",
+  "$id": "https://github.com/Capitali/familiar/blob/main/data/schema/observation.schema.json",
   "title": "Observation",
-  "description": "A single observed event: a subject-predicate-object triple plus provenance. The only authoritative record type in Substrate; everything else is derived from these.",
+  "description": "A single observed event: a subject-predicate-object triple plus provenance. The only authoritative record type in The Familiar; everything else is derived from these.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "source", "actor", "action", "object", "ts", "confidence"],

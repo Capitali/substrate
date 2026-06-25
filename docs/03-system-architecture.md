@@ -5,22 +5,22 @@
 
 ## The hybrid
 
-Substrate is split in two, deliberately:
+The Familiar is split in two, deliberately:
 
 - **A compiled, deterministic kernel** — `crates/kernel` (Rust). The parts that
   must be reproducible, traceable, and safe: records, persistence, lineage, trial,
   selection, memory, and the obedience guard.
-- **An interpreted / data-driven / generated periphery** — the behavior the factory
+- **An interpreted / data-driven / generated periphery** — the behavior the familiar
   mutates *freely, without recompiling itself*: generated artifacts (scripts run
   under resource limits), data-file parameters, and the LLM seam (shelled out).
 
-This split is not a compromise; it *is* the principle "the model is not the factory"
+This split is not a compromise; it *is* the principle "the model is not the familiar"
 and "thin stable kernel, everything else fluid." The slow-to-compile core changes
 rarely because evolution happens in the periphery.
 
 ## Why Rust (decision: [ADR-0003](decision-records/0003-rust-for-the-kernel.md))
 
-Chosen against the Three Laws and the constrained hardware the factory should run
+Chosen against the Three Laws and the constrained hardware the familiar should run
 on (where the served are):
 
 - **Law III** makes memory safety *constitutional*. `crates/kernel` carries
@@ -35,14 +35,14 @@ on (where the served are):
 
 ```
 crates/
-  kernel/   substrate-kernel (lib) — the deterministic core
+  kernel/   familiar-kernel (lib) — the deterministic core
     store.rs        JSONL append/load (serde); data-dir resolution
     observation.rs  the observation record (the only truth)
     service.rs      the service signal (Law I)
     presence.rs     the presence signal (Law II)        [planned]
     guard.rs        the obedience guard (Law III)        [planned]
     # evolutionary kernel (loop/candidate/trial/...) ports in next [planned]
-  cli/      substrate-cli (bin: `substrate`) — the thin shell
+  cli/      familiar-cli (bin: `substrate`) — the thin shell
 ```
 
 ## The cycle (the metabolism)
@@ -62,7 +62,7 @@ response`), the canonical periphery seam.
 ## Storage
 
 JSONL-in / JSONL-out via `serde`, append-only, one file per record type under a
-data directory (`substrate_data/` default, `--data-dir` override). Local-first and
-auditable; the factory sends no telemetry and exfiltrates nothing. The record model
+data directory (`familiar_data/` default, `--data-dir` override). Local-first and
+auditable; the familiar sends no telemetry and exfiltrates nothing. The record model
 and schema live in [`../data/`](../data/). SQLite is a deferred option once the file
 model is proven.

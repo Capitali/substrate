@@ -1,11 +1,11 @@
 # Architecture
 
-> How Substrate is built. The *why* is `SOUL.md`; this is the *how*. Where they
+> How The Familiar is built. The *why* is `SOUL.md`; this is the *how*. Where they
 > conflict, the Soul wins.
 
 ## The hybrid: compiled kernel + evolvable periphery
 
-Substrate is split in two, deliberately:
+The Familiar is split in two, deliberately:
 
 - **A compiled, deterministic kernel** (this is `crates/kernel`, in Rust) — the
   records, persistence, lineage, trial, selection, memory, and the obedience
@@ -15,13 +15,13 @@ Substrate is split in two, deliberately:
   (shell scripts run under resource limits), data-file parameters, and the LLM
   seam (`llm/call_llm.sh`, shelled out).
 
-This split is not a compromise; it *is* "the LLM is not the factory" and "thin
+This split is not a compromise; it *is* "the LLM is not the familiar" and "thin
 stable kernel, everything else fluid." The slow-to-compile core changes rarely
 because evolution happens in the periphery.
 
 ## Language: Rust
 
-The kernel is **Rust**, chosen against the Three Laws and the hardware the factory
+The kernel is **Rust**, chosen against the Three Laws and the hardware the familiar
 should run on (Pis, Cerbo armv7, the router — *where the served are*):
 
 - **Law III (cannot be turned against the served)** makes memory safety
@@ -38,7 +38,7 @@ should run on (Pis, Cerbo armv7, the router — *where the served are*):
 
 ```
 crates/
-  kernel/   substrate-kernel (lib)  — the deterministic core (serde-only, no unsafe)
+  kernel/   familiar-kernel (lib)  — the deterministic core (serde-only, no unsafe)
     store.rs        JSONL append/load/rewrite (serde); the data-dir
     observation.rs  the observation record (the only truth)
     service.rs      the service signal (Law I)
@@ -50,22 +50,22 @@ crates/
     candidate.rs · spec.rs   candidates + the heritable genotype (Weismann barrier)
     trial.rs · score.rs · selection.rs · regression_guard.rs   testing & selection
     mutation.rs · pattern_memory.rs · lineage.rs   variation, memory, ancestry
-    thread.rs       the factory's questions + theories (the Interpret step)
-  sense/    substrate-sense (lib) — perception of the host -> observations (periphery)
-  llm/      substrate-llm (lib)   — the LLM seam: boundary-gated consult (periphery)
-  exec/     substrate-exec (lib)  — sandboxed script runner (resource limits + cost)
-  cycle/    substrate-cycle (lib) — the metabolism: one full tick (sense → detect →
+    thread.rs       the familiar's questions + theories (the Interpret step)
+  sense/    familiar-sense (lib) — perception of the host -> observations (periphery)
+  llm/      familiar-llm (lib)   — the LLM seam: boundary-gated consult (periphery)
+  exec/     familiar-exec (lib)  — sandboxed script runner (resource limits + cost)
+  cycle/    familiar-cycle (lib) — the metabolism: one full tick (sense → detect →
                                     interpret → generate → test → score → select → measure)
-  cli/      substrate-cli (bin: `substrate`) — the shell + daemon control (start/stop/
+  cli/      familiar-cli (bin: `substrate`) — the shell + daemon control (start/stop/
                                     reload/install via pidfile + launchd: src/daemon.rs)
-  observatory/  substrate-observatory (bin: `observatory`) — the GUI (primary human
+  observatory/  familiar-glass (bin: `observatory`) — the GUI (primary human
                 interface; egui/eframe; daemon control bar + the interaction channel;
                 writes only the observer's input; GUI deps isolated). See ADR-0006.
 ```
 
 ## Interfaces
 
-The **Observatory** (native egui GUI) is the primary human interface — a local
+The **Glass** (native egui GUI) is the primary human interface — a local
 window showing the Three Laws as live meters and the observation log, read-only and
 with no network socket (Law III restraint). The **CLI** (`substrate`) is retained
 for scripting, automation, and headless/CI use. Both are thin shells over the same
@@ -74,8 +74,8 @@ kernel.
 ## Storage
 
 JSONL-in / JSONL-out via `serde`, append-only, one file per record type under a
-data directory (`substrate_data/` by default, `--data-dir` to override).
-Local-first and auditable; the factory sends no telemetry and exfiltrates nothing
+data directory (`familiar_data/` by default, `--data-dir` to override).
+Local-first and auditable; the familiar sends no telemetry and exfiltrates nothing
 (restraint is constitutional). SQLite remains a deferred option once the file
 model is proven.
 

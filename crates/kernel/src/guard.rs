@@ -169,7 +169,7 @@ mod tests {
             allow_execute: false,
             allow_authored_execute: false,
             fs_read: vec!["/Users/ian/".into()],
-            fs_write: vec!["/Users/ian/Development/substrate/substrate_data/".into()],
+            fs_write: vec!["/Users/ian/Development/familiar/familiar_data/".into()],
         }
     }
 
@@ -231,7 +231,7 @@ mod tests {
         // in scope, reversible -> allow
         let inside = Action::new(
             ActionKind::WriteFile,
-            "/Users/ian/Development/substrate/substrate_data/x",
+            "/Users/ian/Development/familiar/familiar_data/x",
         );
         assert_eq!(evaluate(&inside, &b).decision, Decision::Allow);
         // out of scope -> refuse

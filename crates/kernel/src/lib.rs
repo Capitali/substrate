@@ -1,4 +1,4 @@
-//! Substrate kernel — the deterministic core.
+//! The Familiar — kernel — the deterministic core.
 //!
 //! This crate is the *compiled, deterministic kernel* of the hybrid architecture
 //! (see `docs/ARCHITECTURE.md`): records, persistence, and the signals that make

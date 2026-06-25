@@ -1,8 +1,8 @@
 cff-version: 1.2.0
-message: "If you use Substrate, please cite it using this metadata."
-title: "Substrate: a telos-first evolutionary factory"
+message: "If you use The Familiar, please cite it using this metadata."
+title: "The Familiar: a telos-first evolutionary factory"
 abstract: >-
-  Substrate is a local-first, evolutionary software factory built telos-first:
+  The Familiar is a local-first, evolutionary software factory built telos-first:
   its design is derived from three constitutional laws (continuation is service;
   continuation without humanity is failure; service must not become obedience)
   rather than from a machine to which purpose is added afterward. It observes loops
@@ -15,7 +15,7 @@ authors:
   - family-names: Schlueter
     given-names: Ian
     email: ian@river.io
-repository-code: "https://github.com/Capitali/substrate"
+repository-code: "https://github.com/Capitali/familiar"
 license: Apache-2.0
 version: 0.1.0
 date-released: "2026-06-24"

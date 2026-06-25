@@ -1,6 +1,6 @@
 # Software Bill of Materials (SBOM)
 
-A human-readable inventory of what ships in Substrate. A machine-readable SBOM
+A human-readable inventory of what ships in The Familiar. A machine-readable SBOM
 (CycloneDX) will be generated and committed once the tree justifies it; until then,
 this is small enough to enumerate by hand. The judgment behind these choices is in
 [dependency-review.md](dependency-review.md).
@@ -11,8 +11,8 @@ this is small enough to enumerate by hand. The judgment behind these choices is 
 
 | Component | Path | License | Role |
 |---|---|---|---|
-| `substrate-kernel` | `crates/kernel` | Apache-2.0 | Deterministic core (`#![forbid(unsafe_code)]`) |
-| `substrate-cli` (`substrate`) | `crates/cli` | Apache-2.0 | CLI shell |
+| `familiar-kernel` | `crates/kernel` | Apache-2.0 | Deterministic core (`#![forbid(unsafe_code)]`) |
+| `familiar-cli` (`substrate`) | `crates/cli` | Apache-2.0 | CLI shell |
 
 ### Direct third-party (crates.io)
 

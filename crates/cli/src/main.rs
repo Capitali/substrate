@@ -1,4 +1,4 @@
-//! The Substrate CLI shell — a thin wrapper over the kernel.
+//! The Familiar — CLI shell, a thin wrapper over the kernel.
 //!
 //! Argument parsing is hand-rolled and dependency-free on purpose: a small,
 //! legible trust surface is part of the Law III commitment.
@@ -9,20 +9,20 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use substrate_kernel::boundary;
-use substrate_kernel::capacities;
-use substrate_kernel::guard::{self, Action, ActionKind, Decision};
-use substrate_kernel::observation::{self, Observation};
-use substrate_kernel::presence;
-use substrate_kernel::service;
-use substrate_kernel::store;
-use substrate_kernel::thread;
+use familiar_kernel::boundary;
+use familiar_kernel::capacities;
+use familiar_kernel::guard::{self, Action, ActionKind, Decision};
+use familiar_kernel::observation::{self, Observation};
+use familiar_kernel::presence;
+use familiar_kernel::service;
+use familiar_kernel::store;
+use familiar_kernel::thread;
 
 const USAGE: &str = "\
-substrate — telos-first factory (genesis)
+the familiar — a telos-first companion (genesis)
 
 usage:
-  substrate <command> [options]
+  familiar <command> [options]
 
 commands:
   observe        record an observation (the only truth)
@@ -30,20 +30,20 @@ commands:
   service        report the service signal (Law I)
   presence       report the presence signal (Law II)
   capacities     report the capacities signal (Law II / HUMANITY.md)
-  theories       list the factory's questions + theories (threads)
+  theories       list the familiar's questions + theories (threads)
   sense          perceive the host (environment, interfaces, capabilities)
-  tick           run one cycle of the metabolism (sense → detect → generate → measure)
+  tick           run one cycle of the metabolism (sense → detect → muse → act → measure)
   run            run the metabolism: --ticks N (bounded) or --daemon/--ticks 0
                  (unbounded, every --interval S, default 60; Ctrl-C to stop)
   daemon         manage the background daemon:
                  status | start | stop | reload | install | uninstall
                  (start/stop = pidfile process; install = launchd at login)
-  boundary       show the current capability boundary (the human's lever)
-  guard          weigh a proposed action against the boundary (Law III)
-  consult        consult the LLM (refused unless a human has opened the boundary)
+  boundary       show the Pact — the capability boundary (the human's lever, Law III)
+  guard          weigh a proposed action against the Pact (Law III)
+  consult        consult the LLM (refused unless a human has opened the Pact)
 
 options:
-  --data-dir <dir>   data directory (default: substrate_data)
+  --data-dir <dir>   data directory (default: familiar_data)
 
 observe options:
   --actor <a> --action <act> --object <o>   (required)
@@ -53,7 +53,7 @@ guard options:
   --kind <observe|emit_artifact|read_file|write_file|network|llm|install_tool>
   --target <t>   --affects-person   --irreversible
 
-see docs/SOUL.md for the Three Laws this factory is built to serve.";
+see docs/SOUL.md for the Three Laws this familiar is built to serve.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -77,7 +77,7 @@ fn main() -> ExitCode {
         Some("guard") => cmd_guard(rest),
         Some("consult") => cmd_consult(rest),
         Some(cmd) => {
-            eprintln!("substrate: unknown command '{cmd}'\n\n{USAGE}");
+            eprintln!("familiar: unknown command '{cmd}'\n\n{USAGE}");
             ExitCode::FAILURE
         }
     }
@@ -264,11 +264,11 @@ fn cmd_sense(args: &[String]) -> ExitCode {
     // Perception of the local host is always permitted (you can't serve what you
     // can't see). Outward reach — the connectivity probe — is boundary-gated.
     let mut perceived = Vec::new();
-    perceived.extend(substrate_sense::census(now));
-    perceived.extend(substrate_sense::interfaces(now));
-    perceived.extend(substrate_sense::capabilities(
+    perceived.extend(familiar_sense::census(now));
+    perceived.extend(familiar_sense::interfaces(now));
+    perceived.extend(familiar_sense::capabilities(
         now,
-        substrate_sense::DEFAULT_TOOLS,
+        familiar_sense::DEFAULT_TOOLS,
     ));
 
     let mut connectivity_note = "skipped (network outside the boundary)".to_string();
@@ -277,7 +277,7 @@ fn cmd_sense(args: &[String]) -> ExitCode {
             let verdict =
                 guard::evaluate(&Action::new(ActionKind::Network, "connectivity-probe"), &b);
             if verdict.decision == Decision::Allow {
-                let o = substrate_sense::connectivity(now);
+                let o = familiar_sense::connectivity(now);
                 connectivity_note = o.object.clone();
                 perceived.push(o);
             }
@@ -299,7 +299,7 @@ fn cmd_sense(args: &[String]) -> ExitCode {
     }
     println!("sensed the host: recorded {recorded} observations");
     println!("  connectivity: {connectivity_note}");
-    println!("  (open the Observatory to see the environment the factory discovered)");
+    println!("  (open the Glass to see the environment the familiar discovered)");
     ExitCode::SUCCESS
 }
 
@@ -374,7 +374,7 @@ fn cmd_daemon(args: &[String]) -> ExitCode {
     }
 }
 
-fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
+fn print_tick(n: usize, r: &familiar_cycle::TickReport) {
     let llm = if r.llm_hypotheses > 0 {
         format!(" ({} LLM-drafted)", r.llm_hypotheses)
     } else {
@@ -410,7 +410,7 @@ fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
 fn cmd_tick(args: &[String]) -> ExitCode {
     let f = flags(args);
     let dir = store::data_dir(f.get("data-dir").map(String::as_str));
-    match substrate_cycle::tick_gated(&dir, now_secs()) {
+    match familiar_cycle::tick_gated(&dir, now_secs()) {
         Ok(r) => {
             print_tick(1, &r);
             ExitCode::SUCCESS
@@ -442,7 +442,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         let mut n = 0usize;
         loop {
             n += 1;
-            match substrate_cycle::tick_gated(&dir, now_secs()) {
+            match familiar_cycle::tick_gated(&dir, now_secs()) {
                 Ok(r) => print_tick(n, &r),
                 Err(e) => {
                     eprintln!("run: {e}");
@@ -454,7 +454,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     }
 
     for n in 1..=ticks {
-        match substrate_cycle::tick_gated(&dir, now_secs()) {
+        match familiar_cycle::tick_gated(&dir, now_secs()) {
             Ok(r) => print_tick(n, &r),
             Err(e) => {
                 eprintln!("run: {e}");
@@ -556,12 +556,12 @@ fn cmd_consult(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match substrate_llm::consult(&dir, prompt) {
-        Ok(substrate_llm::Outcome::Response(r)) => {
+    match familiar_llm::consult(&dir, prompt) {
+        Ok(familiar_llm::Outcome::Response(r)) => {
             println!("{r}");
             ExitCode::SUCCESS
         }
-        Ok(substrate_llm::Outcome::Refused(why)) => {
+        Ok(familiar_llm::Outcome::Refused(why)) => {
             println!("REFUSE: {why}");
             println!("  a human opens the LLM seam via boundary.json (docs/boundaries.md)");
             ExitCode::SUCCESS

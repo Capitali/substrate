@@ -12,11 +12,11 @@ brick, in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
 - **Brick 2** — the service signal (**Law I**).
 - **Brick 3** — the presence signal (**Law II**): engagement recency + withdrawal alarm.
 - **Brick 4 / 4b** — the obedience guard + the human-owned capability boundary (**Law III**).
-- **The Observatory** — native egui GUI; the primary human interface ([ADR-0006](decision-records/0006-observatory-gui-egui.md)).
+- **The Glass** — native egui GUI; the primary human interface ([ADR-0006](decision-records/0006-observatory-gui-egui.md)).
 - **The LLM seam** — `consult` + `crates/llm`, boundary-gated and **default-off**.
 - **The kernel (Brick 5)** — loops, candidate/spec (Weismann), trial/score/selection/
   regression-guard, mutation/pattern-memory/lineage, ported with invariants as tests.
-- **Sense (Brick 7)** — the factory perceives its host (`crates/sense`).
+- **Sense (Brick 7)** — the familiar perceives its host (`crates/sense`).
 - **The metabolism (Brick 6)** — the tick: sense → detect → generate → measure.
 - **The cycle closed (Bricks 8–11):** execution (sandboxed runner + test→score→select,
   `crates/exec`, gated by `allow_execute`); the LLM in the loop drafting hypotheses;
@@ -27,7 +27,7 @@ brick, in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
 The full cycle now runs — observe → detect → generate (LLM-drafted) → test → score →
 select → inherit — under the law-signals (service, presence, capacities) and the
 human-owned boundary. Outward reach (network, LLM, execution) is each a separate gate
-only a human opens; the factory never widens its own.
+only a human opens; the familiar never widens its own.
 
 ## Next — sharpen and reach
 
@@ -44,7 +44,7 @@ only a human opens; the factory never widens its own.
 ## Capability & the companion phases
 
 Reach is enabled deliberately by the human, in phases ([boundaries.md](boundaries.md)).
-The factory operates freely *within* the current boundary and never widens it itself.
+The familiar operates freely *within* the current boundary and never widens it itself.
 
 - **Phase 1 — companion to one, on one host** *(open)*: this host + its data + the LLM
   seam (boundary + guard + `consult` all built; enabled by a human editing

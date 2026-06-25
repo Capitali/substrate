@@ -7,7 +7,7 @@ labels: proposal
 
 ## The loop / observation behind this
 
-<!-- Substrate is observation-first: what recurring friction, need, or opportunity
+<!-- The Familiar is observation-first: what recurring friction, need, or opportunity
      does this trace to? (Don't propose into a vacuum.) -->
 
 ## What you propose

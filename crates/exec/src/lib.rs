@@ -116,7 +116,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn tmp(tag: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("substrate_exec_test_{tag}"));
+        let p = std::env::temp_dir().join(format!("familiar_exec_test_{tag}"));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
@@ -126,10 +126,10 @@ mod tests {
     fn runs_a_clean_script_cheaply() {
         let d = tmp("clean");
         let s = d.join("a.sh");
-        fs::write(&s, "echo hello from substrate\n").unwrap();
+        fs::write(&s, "echo hello from the familiar\n").unwrap();
         let r = run_script(&s, &Limits::default()).unwrap();
         assert!(r.exit_ok && !r.timed_out);
-        assert!(r.output.contains("hello from substrate"));
+        assert!(r.output.contains("hello from the familiar"));
         assert!(cost(&r, &Limits::default()) < 0.5);
         let _ = fs::remove_dir_all(&d);
     }

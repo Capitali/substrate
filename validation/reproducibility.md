@@ -1,6 +1,6 @@
 # Reproducibility
 
-Substrate aims to be reproducible end-to-end — a FAIR4RS requirement and a
+The Familiar aims to be reproducible end-to-end — a FAIR4RS requirement and a
 precondition for trusting any result it reports.
 
 ## Environment
@@ -25,7 +25,7 @@ precondition for trusting any result it reports.
 ## Reproduce the full green bar
 
 ```sh
-git clone https://github.com/Capitali/substrate && cd substrate
+git clone https://github.com/Capitali/familiar && cd substrate
 cargo fmt --check
 cargo clippy -- -D warnings
 cargo test           # expect all tests passing

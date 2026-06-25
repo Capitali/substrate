@@ -1,13 +1,13 @@
 [package]
-name = "substrate-cycle"
+name = "familiar-cycle"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description = "The metabolism — one tick of the factory cycle (sense → detect → generate → measure)."
 
 [dependencies]
-substrate-kernel.workspace = true
-substrate-sense.workspace = true
-substrate-llm.workspace = true
-substrate-exec.workspace = true
+familiar-kernel.workspace = true
+familiar-sense.workspace = true
+familiar-llm.workspace = true
+familiar-exec.workspace = true
 serde_json.workspace = true

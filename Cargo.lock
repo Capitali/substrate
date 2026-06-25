@@ -1029,6 +1029,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "familiar-cli"
+version = "0.1.0"
+dependencies = [
+ "familiar-cycle",
+ "familiar-kernel",
+ "familiar-llm",
+ "familiar-sense",
+]
+
+[[package]]
+name = "familiar-cycle"
+version = "0.1.0"
+dependencies = [
+ "familiar-exec",
+ "familiar-kernel",
+ "familiar-llm",
+ "familiar-sense",
+ "serde_json",
+]
+
+[[package]]
+name = "familiar-exec"
+version = "0.1.0"
+
+[[package]]
+name = "familiar-glass"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "familiar-kernel",
+]
+
+[[package]]
+name = "familiar-kernel"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "familiar-llm"
+version = "0.1.0"
+dependencies = [
+ "familiar-kernel",
+]
+
+[[package]]
+name = "familiar-sense"
+version = "0.1.0"
+dependencies = [
+ "familiar-kernel",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2827,62 +2883,6 @@ dependencies = [
  "quote",
  "rustversion",
  "syn",
-]
-
-[[package]]
-name = "substrate-cli"
-version = "0.1.0"
-dependencies = [
- "substrate-cycle",
- "substrate-kernel",
- "substrate-llm",
- "substrate-sense",
-]
-
-[[package]]
-name = "substrate-cycle"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "substrate-exec",
- "substrate-kernel",
- "substrate-llm",
- "substrate-sense",
-]
-
-[[package]]
-name = "substrate-exec"
-version = "0.1.0"
-
-[[package]]
-name = "substrate-kernel"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "substrate-llm"
-version = "0.1.0"
-dependencies = [
- "substrate-kernel",
-]
-
-[[package]]
-name = "substrate-observatory"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "substrate-kernel",
-]
-
-[[package]]
-name = "substrate-sense"
-version = "0.1.0"
-dependencies = [
- "substrate-kernel",
 ]
 
 [[package]]

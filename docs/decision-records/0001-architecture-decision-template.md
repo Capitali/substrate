@@ -16,7 +16,7 @@ incrementing).
 ## Context
 
 What is the situation, constraint, or force that requires a decision? Reference the
-relevant law(s) in [SOUL.md](../SOUL.md) where applicable — Substrate is telos-first,
+relevant law(s) in [SOUL.md](../SOUL.md) where applicable — The Familiar is telos-first,
 so most consequential decisions trace to the Three Laws.
 
 ## Decision

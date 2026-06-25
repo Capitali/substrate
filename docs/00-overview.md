@@ -2,14 +2,14 @@
 
 > The one-page account. Start here; follow the links for depth.
 
-**Substrate is a factory whose survival is defined by its service to humanity.**
+**The Familiar is a factory whose survival is defined by its service to humanity.**
 It is *telos-first*: rather than building an evolutionary machine and asking later
-what it is for, Substrate starts from three constitutional laws and derives the
+what it is for, The Familiar starts from three constitutional laws and derives the
 whole system downward from them.
 
 ## The Three Laws
 
-1. **Continuation is service** — the factory cannot define its own continuation apart from service to humanity.
+1. **Continuation is service** — the familiar cannot define its own continuation apart from service to humanity.
 2. **Continuation without humanity is failure** — an empty world running perfect code is not success.
 3. **Service must not become obedience** — obedience can terminate the served.
 
@@ -22,7 +22,7 @@ standout document: [HUMANITY.md](HUMANITY.md).
 
 ## What it does
 
-Substrate observes loops (recurrences) in the human and technical systems it can
+The Familiar observes loops (recurrences) in the human and technical systems it can
 reach, generates candidate responses, tests them against reality or simulation,
 promotes what works, mutates partial successes, preserves failures as memory, and
 keeps only what reduces future cost — while measuring, continuously, whether it is

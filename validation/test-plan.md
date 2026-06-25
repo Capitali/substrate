@@ -1,6 +1,6 @@
 # Test Plan
 
-How Substrate is verified. The test suite is the executable specification; the
+How The Familiar is verified. The test suite is the executable specification; the
 green bar is the gate.
 
 ## The green bar (enforced on every change, by CI)

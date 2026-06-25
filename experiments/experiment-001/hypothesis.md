@@ -10,7 +10,7 @@ exist?
 
 A simple, saturating measure of **served-facing attention** — the count of
 observations whose actor or object names a served (human-system) entity — is a
-usable cold-start proxy for "is the factory serving?". Specifically:
+usable cold-start proxy for "is the familiar serving?". Specifically:
 
 - **H1.** The measure is **0** when no observation touches the served, and the
   factory can report this as "continuation unjustified by service."

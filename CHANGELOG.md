@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Substrate are documented here. The format follows
+All notable changes to The Familiar are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/) once it reaches 1.0. The chronological
 engineering detail lives in [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md);
@@ -9,24 +9,24 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
-- **The factory acts on its theories (Brick 15):** a theory carries a *direction*;
+- **The familiar acts on its theories (Brick 15):** a theory carries a *direction*;
   `cycle::pursue_threads` turns each open thread into a candidate (hypothesis = the
-  direction) that runs through test → score → select — the factory does what it
+  direction) that runs through test → score → select — the familiar does what it
   reasoned, bounded by selection. `thread::update_status`; the GUI marks the question
   "answered" when Ian replies. TickReport.pursued; CLI shows it.
-- **The factory theorizes (Brick 14):** the Interpret step — `kernel/thread.rs` (a
+- **The familiar theorizes (Brick 14):** the Interpret step — `kernel/thread.rs` (a
   Thread = question + theory) and `cycle::maybe_theorize` (boundary-gated, hourly):
   grounded in recent observations/loops/signals, the LLM forms a question (→
-  `question.txt`, shown in the GUI interaction panel as the factory's *own* question)
-  and a theory (→ a thread). CLI `theories`; the Observatory shows the latest theory.
+  `question.txt`, shown in the GUI interaction panel as the familiar's *own* question)
+  and a theory (→ a thread). CLI `theories`; the Glass shows the latest theory.
   Threads are reasoning *about* the truth, never new truth.
 - **Daemon control + launchd (Brick 12):** `substrate daemon status|start|stop|reload`
   (pidfile-managed background process) and `install|uninstall` (a launchd LaunchAgent,
-  `io.river.substrate`, starts at login). `run --daemon` records its own pid so launchd
+  `io.river.familiar`, starts at login). `run --daemon` records its own pid so launchd
   and pidfile control agree.
-- **GUI control bar + interaction channel (Brick 13):** the Observatory gains
+- **GUI control bar + interaction channel (Brick 13):** the Glass gains
   Start/Stop/Reload/Start-at-login buttons with a live status line, and **the
-  interaction channel** — the factory's question ("What do you need most today?", or
+  interaction channel** — the familiar's question ("What do you need most today?", or
   `question.txt`) with a text box; Ian's reply is recorded as an observation
   (`initiator=observer`). Speak/show buttons present but disabled (later). The
   observer-input channel is the one place the GUI writes.
@@ -47,15 +47,15 @@ this file is the human-readable summary.
   Weismann barrier), `trial`/`score`/`selection`/`regression_guard` (adaptive bar
   0.70+0.25·rigor; the decision ladder; no unchanged retries), `mutation`/`pattern_memory`
   (suppress a trait only when memory clearly punishes it)/`lineage`.
-- **Sense (Brick 7)** — `crates/sense`: the factory perceives its host (OS/CPU/memory,
+- **Sense (Brick 7)** — `crates/sense`: the familiar perceives its host (OS/CPU/memory,
   interfaces, tool capabilities) as observations; connectivity is the one outward bit,
   boundary-gated. Principle: the boundary governs *reach*, not *perception*.
 - **The metabolism (Brick 6)** — `crates/cycle`: one tick = sense → detect loops →
   generate candidates → measure the law-signals. CLI `tick` / `run --ticks N`. LLM and
   test→score→select are not yet in the loop (honest gaps).
-- **The Humanity standout document** (see Changed) and **the Observatory** now show
+- **The Humanity standout document** (see Changed) and **the Glass** now show
   loops + candidates.
-- **The Observatory (GUI)** ([ADR-0006](docs/decision-records/0006-observatory-gui-egui.md)):
+- **The Glass (GUI)** ([ADR-0006](docs/decision-records/0006-observatory-gui-egui.md)):
   a native egui/eframe window — the primary human interface — showing the Three Laws
   as live meters (service, presence, boundary) and the observation log. Read-only, no
   network socket; GUI deps isolated in `crates/observatory` so the kernel stays
@@ -71,7 +71,7 @@ this file is the human-readable summary.
   `llm/call_llm.sh` (no secrets) + `key.env.example` carried from v1; `*.env` ignored.
 - **Human-owned capability boundary** ([docs/boundaries.md](docs/boundaries.md),
   [ADR-0005](docs/decision-records/0005-human-owned-capability-boundary.md)): the
-  factory's reach is bounded by a policy only the human writes; the factory may narrow
+  factory's reach is bounded by a policy only the human writes; the familiar may narrow
   it but **never widen** it. Widens in phases — companion-to-one (this host + LLM) →
   the lab → many served. Enforced by the obedience guard; no outward capability runs
   until that and the boundary mechanism exist. Wired into the roadmap and human-review
@@ -82,7 +82,7 @@ this file is the human-readable summary.
   a dedicated document defining humanity as a protected class whose definition **may
   never be narrowed** (narrowing who counts is named a precursor to atrocity); value
   independent of usefulness/obedience/productivity; *participation itself* a quality
-  preserved (the factory guides and restrains harm but does not replace human
+  preserved (the familiar guides and restrains harm but does not replace human
   participation). Featured early in README and the overview; SOUL's "What humanity is"
   now summarizes and links it, and gains the anti-narrowing rule.
 - **Constitution — defined *humanity*** ([SOUL.md](docs/SOUL.md), "What humanity is"):
@@ -116,5 +116,5 @@ this file is the human-readable summary.
   inverting the order of derivation: purpose is the floor, evolution the method on
   top of it. See [docs/01-problem-statement.md](docs/01-problem-statement.md).
 
-[Unreleased]: https://github.com/Capitali/substrate/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Capitali/substrate/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Capitali/familiar/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Capitali/familiar/releases/tag/v0.1.0

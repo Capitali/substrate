@@ -1,7 +1,7 @@
 # data/
 
-The data interface for Substrate: the record model, its schema, and a synthetic
-sample. This makes the factory's data **Interoperable** and **Reusable** (FAIR) —
+The data interface for The Familiar: the record model, its schema, and a synthetic
+sample. This makes the familiar's data **Interoperable** and **Reusable** (FAIR) —
 anything can read or produce its logs without reading the Rust.
 
 ## Format
@@ -9,7 +9,7 @@ anything can read or produce its logs without reading the Rust.
 - **JSONL** — one JSON object per line, UTF-8.
 - **Append-only** — records are appended, never edited in place; derived views are
   recomputed from the log.
-- **One file per record type** under a data directory (`substrate_data/` by default,
+- **One file per record type** under a data directory (`familiar_data/` by default,
   `--data-dir` to override). Runtime data is git-ignored; it is not source.
 
 ## Record types
@@ -33,8 +33,8 @@ usable to try the CLI:
 
 ```sh
 mkdir -p /tmp/sub && cp data/sample/observations.jsonl /tmp/sub/
-cargo run -p substrate-cli -- observations --data-dir /tmp/sub
-cargo run -p substrate-cli -- service --data-dir /tmp/sub
+cargo run -p familiar-cli -- observations --data-dir /tmp/sub
+cargo run -p familiar-cli -- service --data-dir /tmp/sub
 ```
 
 ## Validating against the schema

@@ -1,5 +1,5 @@
 [package]
-name = "substrate-exec"
+name = "familiar-exec"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

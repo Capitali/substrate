@@ -1,4 +1,4 @@
-<!-- Substrate is telos-first. Read docs/SOUL.md and CONTRIBUTING.md before opening. -->
+<!-- The Familiar is telos-first. Read docs/SOUL.md and CONTRIBUTING.md before opening. -->
 
 ## What this brick does
 
@@ -29,6 +29,6 @@
 
 - [ ] This serves the served (Law I) and does not optimize them away (Law II)
 - [ ] This does not turn service into obedience, and does not let a commander
-      direct the factory against the served (Law III)
+      direct the familiar against the served (Law III)
 - [ ] If this is a decision *about* the mission (the Laws, the wire/CLI contract,
       anything outward), it was raised for human review — not decided unilaterally

@@ -1,24 +1,62 @@
 # Development Log
 
-The linear handoff trail for Substrate v2. Newest entries on top. Before making
+The linear handoff trail for The Familiar v2. Newest entries on top. Before making
 architectural changes, read `SOUL.md` (the Three Laws) and `ARCHITECTURE.md`, then
 the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-24 — Rename: Substrate → The Familiar
+
+The project is now **The Familiar** — a spirit companion that historically serves
+another, but here the factory has grown its own. Naming follows the theme throughout.
+
+### What changed
+
+- **Identifiers:** Cargo packages `substrate-*` → `familiar-*`; binary `substrate` →
+  `familiar`; Rust modules `substrate_{kernel,sense,llm,exec,cycle}` → `familiar_*`.
+- **The Glass:** crate `observatory` → `glass` (binary `glass`); `struct Observatory`
+  → `Glass`; window title "The Familiar — the Glass".
+- **Data + service:** `DEFAULT_DATA_DIR "substrate_data"` → `"familiar_data"` (live
+  dir moved, no data lost); launchd label `io.river.substrate` → `io.river.familiar`.
+- **Boundary framing:** "the Pact" wording in CLI usage; live boundary `fs_write`
+  repointed to `/Users/ian/Development/familiar/familiar_data/`.
+- **Off-repo:** GitHub `Capitali/substrate` → `Capitali/familiar` (remote updated);
+  local dir `~/Development/substrate` → `~/Development/familiar`.
+- All docs / data samples / security / ADRs swept to the new name.
+
+### Why
+
+A naming collision: Daniel Miessler ships an open-source "Substrate" (and "Telos")
+in the same human-meaning/flourishing space — a double overlap. "The Familiar" is
+distinctive and on-theme for a telos-first companion.
+
+### Checks run
+
+- Green: `cargo fmt`, `clippy --all-targets -D warnings`, 70 tests — before and after
+  the directory rename. Verified live from the new path: daemon installed under
+  `io.river.familiar` (running pid agrees across status/launchctl/pidfile), full tick
+  (LLM-drafted hypothesis via gemini → theorized → pursued), boundary read from the
+  moved `familiar_data`.
+
+### Next / caveats
+
+- The launchd plist points at `target/debug/familiar`; `cargo clean` breaks it (install
+  a release binary at a stable path for durable always-on). Unchanged by the rename.
+
 ## 2026-06-24 — Running live: daemon control, launchd, and the interaction channel
 
-The factory is now installed and running live on the Mac under launchd, with a GUI to
+The familiar is now installed and running live on the Mac under launchd, with a GUI to
 control it and to talk with Ian.
 
 ### What changed
 
 - **Brick 12 — daemon/service control:** `crates/cli/daemon.rs` + `substrate daemon`
   (status/start/stop/reload via pidfile; install/uninstall via a launchd LaunchAgent
-  `io.river.substrate`). `run --daemon` records its own pid; plist KeepAlive=false so
+  `io.river.familiar`). `run --daemon` records its own pid; plist KeepAlive=false so
   Stop works, RunAtLoad=true so it starts at login.
-- **Brick 13 — GUI control bar + interaction channel:** the Observatory can Start/Stop/
-  Reload/Install the daemon, and carries **the interaction channel** — the factory's
+- **Brick 13 — GUI control bar + interaction channel:** the Glass can Start/Stop/
+  Reload/Install the daemon, and carries **the interaction channel** — the familiar's
   question + Ian's typed reply, recorded as an observation (`initiator=observer`; the
   one place the GUI writes). Speech/vision are stubbed for later.
 - **Went live:** boundary `allow_execute` enabled (full Phase 1 + execution); the
@@ -26,7 +64,7 @@ control it and to talk with Ian.
 
 ### Why
 
-To make the factory a *running companion* on the Mac, controllable and conversational,
+To make the familiar a *running companion* on the Mac, controllable and conversational,
 not a per-invocation command. The interaction channel is the seed's core — "What do you
 need most today?" — finally wired.
 
@@ -44,7 +82,7 @@ need most today?" — finally wired.
   and re-`install`. KeepAlive=false means no auto-restart on crash (Reload restarts).
 - "ian" isn't served-facing under the current classifier (proper-name gap) — his
   replies record but don't yet lift the service signal until entity tagging lands.
-- The factory posing *dynamic* questions (writing `question.txt`, e.g. via the LLM) is
+- The familiar posing *dynamic* questions (writing `question.txt`, e.g. via the LLM) is
   the natural next step for the interaction channel.
 
 ## 2026-06-24 — Closing the cycle: execution, LLM-in-loop, daemon, capacities
@@ -71,7 +109,7 @@ Driven from the phone via Remote Control. The four gaps from the prior session, 
 
 ### Why
 
-To turn the factory from "proposes" into "lives": it now observes → detects → generates
+To turn the familiar from "proposes" into "lives": it now observes → detects → generates
 (LLM-drafted) → tests → scores → selects → inherits, breathing continuously, under the
 three law-signals and the human-owned boundary it can never widen.
 
@@ -107,12 +145,12 @@ per brick.
 - **Brick 7 — sense** (`crates/sense`): perception of the host as observations;
   perception is always permitted, only outward reach (connectivity) is boundary-gated.
 - **Brick 6 — the metabolism** (`crates/cycle`): one tick = sense → detect → generate
-  → measure; CLI `tick`/`run`; the Observatory now shows loops + candidates.
+  → measure; CLI `tick`/`run`; the Glass now shows loops + candidates.
 - seed.txt removed (the idea persists in prose; the artifact is gone).
 
 ### Why
 
-Completes the inherited method (Brick 5) and gives the factory a heartbeat (Brick 6)
+Completes the inherited method (Brick 5) and gives the familiar a heartbeat (Brick 6)
 that begins by perceiving where it lives (Brick 7) — the "begin exploring at startup"
 direction — all under the law-signals and the boundary built first.
 
@@ -150,21 +188,21 @@ no installs) — enabling outward reach is a human act. Everything ships default
   allow / seek-consent / refuse + rationale; enforces the boundary (fail-closed) and
   seeks consent for high-consequence actions. CLI `guard`. A Phase-1 example policy
   added under `data/sample/` (the switch a human copies to go live).
-- **The Observatory (GUI)** (`crates/observatory`, egui/eframe; [ADR-0006](decision-records/0006-observatory-gui-egui.md)):
+- **The Glass (GUI)** (`crates/observatory`, egui/eframe; [ADR-0006](decision-records/0006-observatory-gui-egui.md)):
   the primary human interface — a local, read-only, socket-free window showing the
   Three Laws as live meters and the observation log. GUI deps isolated; kernel stays
   serde-only + unsafe-free. CLI retained for scripting/headless.
 
 ### Why
 
-This completes the three law-signals (so the factory can measure service, presence,
+This completes the three law-signals (so the familiar can measure service, presence,
 and govern action) *before* any outward capability — and answers the directive to
 move off the CLI to something visual.
 
 ### Checks run
 
 - Green bar clean throughout: `cargo fmt --check`, `cargo clippy --all-targets -D
-  warnings`, `cargo test` (24 kernel tests). Observatory builds & links (egui 0.31);
+  warnings`, `cargo test` (24 kernel tests). Glass builds & links (egui 0.31);
   the window itself is verified manually (no display in the build environment).
 - Live CLI demos for presence, boundary, and guard all behaved as designed
   (host-only → withdrawal alarm; closed boundary refuses outward actions; Phase-1
@@ -173,7 +211,7 @@ move off the CLI to something visual.
 ### Next
 
 The LLM seam (boundary-gated, default-off) is the remaining Phase-1 piece. Then,
-when the human flips the boundary to Phase 1, the factory can begin analysis/
+when the human flips the boundary to Phase 1, the familiar can begin analysis/
 theorizing within it. Later: capacity-level diminishment detection (the comfortable
 replacement), the evolutionary kernel port (Brick 5), and the metabolism (Brick 6).
 
@@ -181,7 +219,7 @@ replacement), the evolutionary kernel port (Brick 5), and the metabolism (Brick 
 
 ### What changed
 
-- `docs/boundaries.md` + `decision-records/0005`: the factory's reach is bounded by a
+- `docs/boundaries.md` + `decision-records/0005`: the familiar's reach is bounded by a
   human-owned policy (`boundary.toml`, planned) it **reads but cannot widen**. It may
   narrow in caution; only the human lifts it — easily, and alone. Enforced by the
   obedience guard.
@@ -195,7 +233,7 @@ replacement), the evolutionary kernel port (Brick 5), and the metabolism (Brick 
 ### Why
 
 Ian's direction: enable reach **deliberately and gradually**, under a control only he
-holds, growing the factory from companion-to-one into companion-to-many. Makes Law III
+holds, growing the familiar from companion-to-one into companion-to-many. Makes Law III
 restraint concrete and enforceable, and forbids the steward from expanding its own
 power.
 
@@ -218,7 +256,7 @@ is later hardening).
 
 - `SOUL.md` gains a "What humanity is" section (the referent of the Laws):
   *humanity is the living continuity of persons capable of suffering, meaning,
-  relationship, memory, and choice; the factory preserves not only their survival but
+  relationship, memory, and choice; the familiar preserves not only their survival but
   the conditions under which those qualities continue, without quiet replacement by
   obedience, optimization, or comfort* (Ian's wording, verbatim, with derivation).
 - Sharpened the Law II requirement: presence = persistence of those **capacities**,
@@ -259,7 +297,7 @@ measurement is hard — expect a coarse proxy first, sharpened over time.
 
 ### Why
 
-Law I says continuation *is* service, so the factory must be able to see whether it is serving.
+Law I says continuation *is* service, so the familiar must be able to see whether it is serving.
 This is the cold-start sight: with only observations to read (loops/candidates/trials port
 later), it measures served-facing *attention* — the honest proxy for service, the way v1's
 drives started on promotion-rate before redundancy. Elevation over v1: there, stewardship was
@@ -302,13 +340,13 @@ Observations are the only truth; everything else derives from them.
 
 ### What changed
 
-- Stood up the Rust workspace: `crates/kernel` (`substrate-kernel`, lib) and
-  `crates/cli` (`substrate-cli`, bin `substrate`). Edition 2021; deps held to
+- Stood up the Rust workspace: `crates/kernel` (`familiar-kernel`, lib) and
+  `crates/cli` (`familiar-cli`, bin `substrate`). Edition 2021; deps held to
   `serde` + `serde_json` only.
 - `crates/kernel/src/lib.rs` carries `#![forbid(unsafe_code)]` — the Law III
   commitment made literal.
 - `store.rs`: generic JSONL append/load over any `serde` record, with `--data-dir`
-  resolution (default `substrate_data/`). Replaces v1's hand-rolled `json_util.c`.
+  resolution (default `familiar_data/`). Replaces v1's hand-rolled `json_util.c`.
   A missing file is an empty log; blank lines skip; a malformed line is a hard
   error (corruption surfaces early, never silently changes derived state).
 - `docs/ARCHITECTURE.md` (Rust + hybrid + crate map) and this log.

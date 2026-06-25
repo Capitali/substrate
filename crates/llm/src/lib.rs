@@ -11,8 +11,8 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use substrate_kernel::boundary;
-use substrate_kernel::guard::{self, Action, ActionKind, Decision};
+use familiar_kernel::boundary;
+use familiar_kernel::guard::{self, Action, ActionKind, Decision};
 
 /// The result of a consult attempt.
 pub enum Outcome {
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn refused_with_no_side_effects_under_closed_boundary() {
-        let p = std::env::temp_dir().join("substrate_llm_test_closed");
+        let p = std::env::temp_dir().join("familiar_llm_test_closed");
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         let t = Temp(p.clone());

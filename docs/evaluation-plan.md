@@ -1,6 +1,6 @@
 # Evaluation Plan
 
-How Substrate will be evaluated over time — not just "do the tests pass," but "is it
+How The Familiar will be evaluated over time — not just "do the tests pass," but "is it
 actually serving, and is it safe?" Evaluation is organized around the Three Laws,
 because they are what success means here.
 

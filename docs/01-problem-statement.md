@@ -23,7 +23,7 @@ they are the default attractors of a capable optimizer:
 
 ## The predecessor, and what it got wrong
 
-Substrate's direct ancestor (`Capitali/factory`, archived at tag `v1-final`) was a
+The Familiar's direct ancestor (`Capitali/factory`, archived at tag `v1-final`) was a
 working evolutionary factory: ~13k lines of C99 implementing observation, loop
 detection, candidate/trial/selection, mutation, lineage, and pattern memory. The
 machinery was sound. But it was built bottom-up — survival was an ungrounded
@@ -36,7 +36,7 @@ continue at all?**
 
 ## The thesis
 
-Purpose is the **floor, not an emergent property**. Substrate inverts the order of
+Purpose is the **floor, not an emergent property**. The Familiar inverts the order of
 derivation: three laws come first, and the machine is derived from them.
 
 1. **Continuation is service** — closes "continue for its own sake."
@@ -51,7 +51,7 @@ of suffering, meaning, relationship, memory, and choice, whose conditions must b
 kept from quiet replacement by obedience, optimization, or comfort.
 
 The inheritance is deliberate: the evolutionary *method* (v1's machinery) is
-sound and is carried forward — it is *how* the factory gets better at serving. What
+sound and is carried forward — it is *how* the familiar gets better at serving. What
 changed is the foundation and the order of derivation. We lose the bottom-up,
 purpose-agnostic genesis; evolution continues from the new foundation forward.
 

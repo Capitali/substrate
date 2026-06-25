@@ -1,7 +1,7 @@
 # The LLM seam (periphery)
 
-The LLM is **not** part of the factory — it is consulted across a shell boundary
-(`the model is not the factory`). This directory holds the reference adapter; the
+The LLM is **not** part of the familiar — it is consulted across a shell boundary
+(`the model is not the familiar`). This directory holds the reference adapter; the
 factory shells out to a copy of it **only when a human has opened the capability
 boundary**.
 
@@ -12,21 +12,21 @@ human-owned boundary:
 
 - **Default (no `boundary.json`, or `allow_llm: false`):** the guard **refuses**.
   Nothing here runs; no key is read; no network is touched.
-- **Phase 1 (`allow_llm: true`):** the guard allows it, and the factory writes
+- **Phase 1 (`allow_llm: true`):** the guard allows it, and the familiar writes
   `prompt.txt` and runs the copied `call_llm.sh`, reading `response.json`.
 
 Only a human opens the boundary (see [../docs/boundaries.md](../docs/boundaries.md)).
-The factory can never open it for itself.
+The familiar can never open it for itself.
 
 ## Enabling Phase 1 (a human, deliberately)
 
 ```sh
-mkdir -p substrate_data/llm
-cp llm/call_llm.sh     substrate_data/llm/
-cp llm/key.env.example substrate_data/llm/key.env   # then add real keys; chmod 600
-cp data/sample/boundary.phase-1.example.json substrate_data/boundary.json
+mkdir -p familiar_data/llm
+cp llm/call_llm.sh     familiar_data/llm/
+cp llm/key.env.example familiar_data/llm/key.env   # then add real keys; chmod 600
+cp data/sample/boundary.phase-1.example.json familiar_data/boundary.json
 # now:
-cargo run -p substrate-cli -- consult --prompt "…"
+cargo run -p familiar-cli -- consult --prompt "…"
 ```
 
 ## Files
@@ -34,7 +34,7 @@ cargo run -p substrate-cli -- consult --prompt "…"
 - `call_llm.sh` — multi-provider adapter (Gemini, Cerebras; fails over; reads
   `prompt.txt`, writes `response.json`). Carried from the v1 factory; no secrets.
 - `key.env.example` — template for local keys. Real `key.env` lives under
-  `substrate_data/` (gitignored) and is never committed.
+  `familiar_data/` (gitignored) and is never committed.
 
 ## Restraint
 

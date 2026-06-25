@@ -1,16 +1,16 @@
 # Datasheet — the observation log
 
 A "Datasheet for Datasets"-style record (after Gebru et al., 2021) for the data
-Substrate collects and reasons over. The sensitivity view is
+The Familiar collects and reasons over. The sensitivity view is
 [../security/data-classification.md](../security/data-classification.md); the
 conceptual model is [data-model.md](data-model.md).
 
 ## Motivation
 
-- **Why does this data exist?** To let the factory observe the human and technical
+- **Why does this data exist?** To let the familiar observe the human and technical
   systems it serves, detect loops, and measure whether it is serving (Laws I–II).
   Without observations there is no truth to act on.
-- **Who collects it / for whom?** The factory itself, on the operator's host, for
+- **Who collects it / for whom?** The familiar itself, on the operator's host, for
   the served. Not for any third party — nothing is transmitted outward.
 
 ## Composition

@@ -9,7 +9,7 @@
 ## Reproduce the unit-level result
 
 ```sh
-cargo test -p substrate-kernel service
+cargo test -p familiar-kernel service
 ```
 
 Expect the `service::tests::*` cases to pass.
@@ -18,13 +18,13 @@ Expect the `service::tests::*` cases to pass.
 
 ```sh
 D=$(mktemp -d)
-cargo run -q -p substrate-cli -- observe --actor host --action reports --object cpu_load --data-dir "$D"
-cargo run -q -p substrate-cli -- service --data-dir "$D"
+cargo run -q -p familiar-cli -- observe --actor host --action reports --object cpu_load --data-dir "$D"
+cargo run -q -p familiar-cli -- service --data-dir "$D"
 #   -> service signal 0.00 (...); "continuation unjustified by service (Law I)"
 
-cargo run -q -p substrate-cli -- observe --actor client --action requests --object status_report --data-dir "$D"
-cargo run -q -p substrate-cli -- observe --actor support_team --action resolves --object customer_ticket --data-dir "$D"
-cargo run -q -p substrate-cli -- service --data-dir "$D"
+cargo run -q -p familiar-cli -- observe --actor client --action requests --object status_report --data-dir "$D"
+cargo run -q -p familiar-cli -- observe --actor support_team --action resolves --object customer_ticket --data-dir "$D"
+cargo run -q -p familiar-cli -- service --data-dir "$D"
 #   -> service signal 0.40 (2 of 3 ...; e.g. client)
 rm -rf "$D"
 ```

@@ -28,5 +28,5 @@ labels: bug
 ## Notes
 
 <!-- Logs, the offending JSONL line, anything that helps. Failures are fossils —
-     this may become an entry in validation/known-failures.md and the factory's
+     this may become an entry in validation/known-failures.md and the familiar's
      own pattern memory. -->

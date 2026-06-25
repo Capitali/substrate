@@ -1,6 +1,6 @@
 # Bias and Limitations
 
-A responsible-AI accounting of where Substrate is biased, blind, or limited. This
+A responsible-AI accounting of where The Familiar is biased, blind, or limited. This
 complements the engineering-focused [06-limitations.md](06-limitations.md) with a
 fairness/impact lens. Naming these is a precondition for trusting the system and for
 not letting "it measures service" imply more than it does.
@@ -22,7 +22,7 @@ not letting "it measures service" imply more than it does.
   facing activity, not *helping*. Left unsharpened, this could reward looking busy
   near people rather than actually serving them. *Mitigation:* fold in needs-reduced
   once the kernel lands ([evaluation-plan.md](evaluation-plan.md)).
-- **Observability bias.** The factory can only serve what it can observe; quiet or
+- **Observability bias.** The familiar can only serve what it can observe; quiet or
   invisible needs are under-weighted. Whoever/whatever is easiest to instrument gets
   more of its attention.
 - **LLM inheritance.** The periphery LLM carries its own training biases into naming

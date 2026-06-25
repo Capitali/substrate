@@ -1,11 +1,11 @@
-//! The Observatory — a visual window onto the factory.
+//! The Glass — a scrying glass onto your familiar.
 //!
 //! This is the primary human interface (the CLI remains for scripting/headless use).
-//! It watches the factory's truth (observations) and the law-signals derived from it,
-//! and it controls the daemon. It does **not** mutate the factory's own derived state
+//! It watches the familiar's truth (observations) and the law-signals derived from it,
+//! and it controls the daemon. It does **not** mutate the familiar's own derived state
 //! — with one principled exception: the **observer-input channel**, where Ian's reply
-//! to the factory's question is recorded as an observation. That is the observer being
-//! a first-class initiator (Input Parity), not the factory editing its own truth.
+//! to the familiar's question is recorded as an observation. That is the observer being
+//! a first-class initiator (Input Parity), not the familiar editing its own truth.
 //!
 //! It lives in its own crate so the kernel stays minimal-dependency and
 //! `#![forbid(unsafe_code)]`; the GUI's heavier dependencies are isolated here.
@@ -14,13 +14,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use substrate_kernel::boundary::{self, Boundary};
-use substrate_kernel::candidate::{self, Candidate};
-use substrate_kernel::loops::{self, Loop};
-use substrate_kernel::observation::{self, Observation};
-use substrate_kernel::presence::{self, PresenceSignal};
-use substrate_kernel::service::{self, ServiceSignal};
-use substrate_kernel::thread::{self, Thread};
+use familiar_kernel::boundary::{self, Boundary};
+use familiar_kernel::candidate::{self, Candidate};
+use familiar_kernel::loops::{self, Loop};
+use familiar_kernel::observation::{self, Observation};
+use familiar_kernel::presence::{self, PresenceSignal};
+use familiar_kernel::service::{self, ServiceSignal};
+use familiar_kernel::thread::{self, Thread};
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -29,7 +29,7 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// A snapshot of the factory's state, recomputed on refresh.
+/// A snapshot of the familiar's state, recomputed on refresh.
 struct Snapshot {
     observations: Vec<Observation>,
     loops: Vec<Loop>,
@@ -68,10 +68,10 @@ impl Snapshot {
     }
 }
 
-struct Observatory {
+struct Glass {
     data_dir: PathBuf,
     snapshot: Snapshot,
-    /// Ian's in-progress reply to the factory's question.
+    /// Ian's in-progress reply to the familiar's question.
     response: String,
     /// Last daemon status line (refreshed on actions and on load).
     daemon_status: String,
@@ -87,17 +87,17 @@ fn read_answered(dir: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Path to the sibling `substrate` binary (same target dir as this GUI).
-fn substrate_bin() -> PathBuf {
+/// Path to the sibling `familiar` binary (same target dir as this GUI).
+fn familiar_bin() -> PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("substrate")))
-        .unwrap_or_else(|| PathBuf::from("substrate"))
+        .and_then(|p| p.parent().map(|d| d.join("familiar")))
+        .unwrap_or_else(|| PathBuf::from("familiar"))
 }
 
-/// Run `substrate daemon <sub> --data-dir <dir>` and return its trimmed output.
+/// Run `familiar daemon <sub> --data-dir <dir>` and return its trimmed output.
 fn daemon_cmd(dir: &Path, sub: &str) -> String {
-    match Command::new(substrate_bin())
+    match Command::new(familiar_bin())
         .arg("daemon")
         .arg(sub)
         .arg("--data-dir")
@@ -111,11 +111,11 @@ fn daemon_cmd(dir: &Path, sub: &str) -> String {
             }
             s
         }
-        Err(e) => format!("daemon: could not run substrate ({e})"),
+        Err(e) => format!("daemon: could not run familiar ({e})"),
     }
 }
 
-/// The question the factory is currently posing (it may write `question.txt`; the
+/// The question the familiar is currently posing (it may write `question.txt`; the
 /// default is the seed's standing question).
 fn current_question(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("question.txt"))
@@ -125,12 +125,12 @@ fn current_question(dir: &Path) -> String {
         .unwrap_or_else(|| "What do you need most today?".to_string())
 }
 
-impl Observatory {
+impl Glass {
     fn new(data_dir: PathBuf) -> Self {
         let snapshot = Snapshot::load(&data_dir);
         let daemon_status = daemon_cmd(&data_dir, "status");
         let answered_question = read_answered(&data_dir);
-        Observatory {
+        Glass {
             data_dir,
             snapshot,
             response: String::new(),
@@ -145,7 +145,7 @@ impl Observatory {
         self.daemon_status = daemon_cmd(&self.data_dir, "status");
     }
     /// Record Ian's reply as an observation — the observer's input channel (the one
-    /// place the GUI writes; the factory's own truth stays read-only).
+    /// place the GUI writes; the familiar's own truth stays read-only).
     fn submit_response(&mut self) {
         let resp = self.response.trim();
         if resp.is_empty() {
@@ -163,7 +163,7 @@ impl Observatory {
             1.0,
         );
         let _ = observation::record(&self.data_dir, obs);
-        // close the factory's open question: mark the latest open thread answered.
+        // close the familiar's open question: mark the latest open thread answered.
         if let Some(open) = self
             .snapshot
             .threads
@@ -174,7 +174,7 @@ impl Observatory {
             let _ = thread::update_status(&self.data_dir, &open.id, "answered");
         }
         // steer: Ian's answer becomes an open thread with his words as the direction,
-        // so the factory pursues what *he* said he needs — not just what it inferred.
+        // so the familiar pursues what *he* said he needs — not just what it inferred.
         let seq = self.snapshot.threads.len() + 1;
         let _ = thread::append(
             &self.data_dir,
@@ -218,14 +218,14 @@ fn signal_meter(ui: &mut egui::Ui, label: &str, sub: &str, value: f64, good_high
     });
 }
 
-impl eframe::App for Observatory {
+impl eframe::App for Glass {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
-            ui.heading("Substrate — Observatory");
+            ui.heading("The Familiar — the Glass");
             ui.label(
                 egui::RichText::new(
-                    "A factory whose survival is defined by its service to humanity.",
+                    "Your familiar — its survival defined by its service to you, and through you to humanity.",
                 )
                 .italics()
                 .weak(),
@@ -273,7 +273,7 @@ impl eframe::App for Observatory {
                 ui.colored_label(egui::Color32::RED, err);
             }
 
-            // --- the interaction channel: the factory asks, Ian answers ---
+            // --- the interaction channel: the familiar asks, Ian answers ---
             ui.add_space(6.0);
             let question = current_question(&self.data_dir);
             let already_answered = self.answered_question.as_deref() == Some(question.as_str());
@@ -282,10 +282,10 @@ impl eframe::App for Observatory {
                 .show(ui, |ui| {
                     if already_answered {
                         // the question has been answered — fade it out so it isn't
-                        // answered twice; it returns when the factory asks something new.
+                        // answered twice; it returns when the familiar asks something new.
                         ui.label(
                             egui::RichText::new(
-                                "✓ answered — the factory will ask again as it learns",
+                                "✓ answered — the familiar will ask again as it learns",
                             )
                             .italics()
                             .color(egui::Color32::from_rgb(110, 140, 110)),
@@ -321,7 +321,7 @@ impl eframe::App for Observatory {
                 if !t.theory.is_empty() {
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new(format!("💭 the factory is thinking: {}", t.theory))
+                        egui::RichText::new(format!("💭 the familiar is thinking: {}", t.theory))
                             .italics()
                             .color(egui::Color32::from_rgb(180, 180, 140)),
                     );
@@ -422,7 +422,7 @@ impl eframe::App for Observatory {
             });
         });
 
-        // gentle auto-refresh so the window tracks the factory as it runs
+        // gentle auto-refresh so the window tracks the familiar as it runs
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
     }
 }
@@ -438,7 +438,7 @@ fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {
                     "CLOSED — no outward reach",
                 );
                 ui.label(
-                    egui::RichText::new("the human's lever; the factory can't widen it")
+                    egui::RichText::new("the human's lever; the familiar can't widen it")
                         .weak()
                         .small(),
                 );
@@ -481,15 +481,15 @@ fn data_dir_from_args() -> PathBuf {
             return PathBuf::from(&w[1]);
         }
     }
-    PathBuf::from(substrate_kernel::store::DEFAULT_DATA_DIR)
+    PathBuf::from(familiar_kernel::store::DEFAULT_DATA_DIR)
 }
 
 fn main() -> eframe::Result<()> {
     let data_dir = data_dir_from_args();
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "Substrate Observatory",
+        "The Familiar — the Glass",
         options,
-        Box::new(|_cc| Ok(Box::new(Observatory::new(data_dir)))),
+        Box::new(|_cc| Ok(Box::new(Glass::new(data_dir)))),
     )
 }

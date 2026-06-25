@@ -1,6 +1,6 @@
 # Contributing
 
-Substrate is built **telos-first**. Before proposing a change, read
+The Familiar is built **telos-first**. Before proposing a change, read
 [`docs/SOUL.md`](docs/SOUL.md) (the Three Laws and what they require) and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Where any change conflicts with the
 Three Laws, the Laws win.
@@ -58,4 +58,4 @@ Each kind of writing has one home — keep them distinct:
 
 Decisions *inside* the mission (how a brick is built) are the contributor's.
 Decisions *about* the mission — the Three Laws, the wire/CLI contract, anything that
-changes what the factory is for — stop and ask. When in doubt, open an issue or an ADR draft.
+changes what the familiar is for — stop and ask. When in doubt, open an issue or an ADR draft.

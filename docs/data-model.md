@@ -1,6 +1,6 @@
 # Data Model
 
-The conceptual model of what Substrate stores and how the records relate. The
+The conceptual model of what The Familiar stores and how the records relate. The
 operational format and schema are in [`../data/`](../data/); this is the *meaning*.
 
 ## The one truth: observations

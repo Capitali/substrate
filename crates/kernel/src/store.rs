@@ -11,7 +11,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 /// Default data directory when no override is given.
-pub const DEFAULT_DATA_DIR: &str = "substrate_data";
+pub const DEFAULT_DATA_DIR: &str = "familiar_data";
 
 /// Resolve the data directory from an optional override.
 pub fn data_dir(override_dir: Option<&str>) -> PathBuf {
