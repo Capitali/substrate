@@ -9,6 +9,11 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **The factory acts on its theories (Brick 15):** a theory carries a *direction*;
+  `cycle::pursue_threads` turns each open thread into a candidate (hypothesis = the
+  direction) that runs through test → score → select — the factory does what it
+  reasoned, bounded by selection. `thread::update_status`; the GUI marks the question
+  "answered" when Ian replies. TickReport.pursued; CLI shows it.
 - **The factory theorizes (Brick 14):** the Interpret step — `kernel/thread.rs` (a
   Thread = question + theory) and `cycle::maybe_theorize` (boundary-gated, hourly):
   grounded in recent observations/loops/signals, the LLM forms a question (→
