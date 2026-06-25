@@ -104,6 +104,9 @@ struct Glass {
     params_edit: Parameters,
     /// Ian's in-progress free-form request to the familiar ("ask the familiar").
     ask: String,
+    /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
+    /// auto-refreshes on a throttle, not only when Ian clicks something).
+    last_refresh: std::time::Instant,
 }
 
 fn read_answered(dir: &Path) -> Option<String> {
@@ -165,6 +168,7 @@ impl Glass {
             answered_question,
             params_edit,
             ask: String::new(),
+            last_refresh: std::time::Instant::now(),
         }
     }
     fn refresh(&mut self) {
@@ -280,6 +284,15 @@ fn signal_meter(ui: &mut egui::Ui, label: &str, sub: &str, value: f64, good_high
 
 impl eframe::App for Glass {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Track the daemon live: reload the snapshot on a throttle (not only when Ian acts),
+        // so observations, the activity feed, the chart, and new questions stay current —
+        // and a wiped data dir reflects immediately rather than lingering as a stale view.
+        // The throttle keeps file reads modest; in-progress edits (ask/response/params) live
+        // in separate fields, so a reload never clobbers them.
+        if self.last_refresh.elapsed() >= std::time::Duration::from_secs(1) {
+            self.refresh();
+            self.last_refresh = std::time::Instant::now();
+        }
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.heading("The Familiar — the Glass");
