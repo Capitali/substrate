@@ -6,10 +6,19 @@ of not letting "covered" read as more than it is.
 
 ## Maturity
 
-Substrate is at genesis + bootstrap. Two of three law-signals are unbuilt
-(presence, the obedience guard), and the inherited evolutionary kernel
-(loop/candidate/trial/selection/memory) is not yet ported. The factory does not yet
-*run a cycle*; it records observations and measures the service signal.
+The full cycle now runs (sense → interpret → generate → test → score → select →
+inherit) under all three law-signals, as a daemon. But much is a **coarse cold-start**:
+
+- **Deterministic, safe artifacts.** What gets executed is a benign script the factory
+  authors, not the LLM-authored *solution* to the loop. So selection rarely
+  discriminates yet (clean artifacts promote). Executing LLM-authored code is a further,
+  separately-gated step.
+- **No rigor / no real scenarios.** The promotion bar runs at `rigor = 0` (base 0.70);
+  there is no scenario fixture set, so "fit" is just "ran cleanly," not "addressed the
+  loop." The selection machinery is real; what it judges is thin.
+- **Theorize is hourly and stateless.** The factory forms a question + theory on a timer,
+  but does not yet *act* on a theory (turn a thread into candidate work), nor does the
+  human's answer yet steer what it pursues.
 
 ## The service signal is a cold-start proxy
 

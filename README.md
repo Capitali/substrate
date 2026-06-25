@@ -54,12 +54,13 @@ cargo run -p substrate-observatory        # opens a window: the Three Laws, live
 **The CLI (scripting / headless):**
 
 ```sh
-cargo build
-cargo test
-cargo run -p substrate-cli -- observe --actor client --action requests --object status_report
-cargo run -p substrate-cli -- service        # the service signal (Law I)
-cargo run -p substrate-cli -- presence       # the presence signal (Law II)
-cargo run -p substrate-cli -- boundary       # the capability boundary (Law III)
+cargo build && cargo test
+cargo run -p substrate-cli -- tick          # one cycle: sense → detect → interpret → generate → test → score → select
+cargo run -p substrate-cli -- run --daemon  # the metabolism, continuously (or: daemon install)
+cargo run -p substrate-cli -- service       # / presence / capacities — the law-signals (I, II, II)
+cargo run -p substrate-cli -- theories      # the factory's self-formed questions + theories
+cargo run -p substrate-cli -- boundary      # the human-owned capability boundary (Law III)
+cargo run -p substrate-cli -- daemon status # start | stop | reload | install | uninstall
 ```
 
 The green bar — required for every change — is `cargo fmt --check`,
@@ -67,11 +68,17 @@ The green bar — required for every change — is `cargo fmt --check`,
 
 ## Status
 
-Genesis + bootstrap. The constitution is written; the substrate (Rust, hybrid) is
-chosen; the observation spine and the **service signal (Law I)** are measurable.
-Next: the presence signal (Law II), the obedience guard (Law III), then porting the
-inherited evolutionary kernel. See [CHANGELOG.md](CHANGELOG.md) and
-[docs/07-roadmap.md](docs/07-roadmap.md).
+**The full cycle runs, live.** The constitution is written; the substrate (Rust,
+hybrid) is built; all three law-signals are measurable (service, presence, and
+capacities — the comfortable-replacement alarm). The metabolism breathes:
+**sense → detect → interpret (the factory forms its own questions + theories) →
+generate (LLM-drafted hypotheses) → test (sandboxed execution) → score → select →
+inherit**, under the human-owned boundary it can never widen. It runs as a daemon
+(installable under launchd), and the Observatory carries the interaction channel —
+the factory asks ("What do you need most today?"), the human answers.
+
+Outward reach (network, LLM, executing generated code) is each a separate gate only a
+human opens. See [CHANGELOG.md](CHANGELOG.md) and [docs/07-roadmap.md](docs/07-roadmap.md).
 
 ## Lineage
 

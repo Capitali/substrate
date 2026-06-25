@@ -1,22 +1,28 @@
 # 05 — Validation and Results
 
-What has been demonstrated so far, and how to reproduce it. This is an honest
-account of a project at genesis + bootstrap: the results are real but small.
+What has been demonstrated, and how to reproduce it. The full cycle now runs live; the
+results below are real, though several signals are still coarse cold-starts (see
+[06-limitations.md](06-limitations.md)).
 
 ## Test suite (current)
 
-The kernel test suite is the executable specification. As of v0.1.0:
+The test suite is the executable specification: **~69 tests across the workspace**, all
+passing, covering the kernel (records, the law-signals, loops/candidate/spec with the
+Weismann barrier, score/selection/regression-guard, mutation/pattern-memory/lineage,
+threads, capacities), the sandboxed runner, and the cycle (incl. execute-closes-the-loop
+and idempotence). The invariants are encoded as tests (the adaptive promotion bar
+`0.70+0.25·rigor`, pattern suppression `neg>pos`, the Weismann barrier, the regression
+guard). Run: `cargo test`. Plan: [../validation/test-plan.md](../validation/test-plan.md).
 
-- **9 unit tests**, all passing.
-  - `store`: missing-file-is-empty-log, append/load round-trips in order, blank
-    lines skipped / malformed line is a hard error.
-  - `observation`: sequential id assignment (`obs-NNNN`), JSONL round-trip field
-    fidelity, explicit id preserved.
-  - `service`: classifier matches markers (case-insensitive) but not bare proper
-    names; zero when nothing serves; monotonic rise with served-facing attention;
-    empty log is zero.
+## The full cycle, live
 
-Run: `cargo test`. Full plan and intent: [../validation/test-plan.md](../validation/test-plan.md).
+On the developer's Mac, with the boundary opened to Phase 1 + execute, a single tick
+demonstrated the whole loop end-to-end: it **sensed** the host, **interpreted** (formed
+a grounded question — *"are you working on projects involving network tunnels or
+compiling C/Rust?"* — and a theory from the utun interfaces + toolchain + a recurring
+loop), **generated** a candidate with an **LLM-drafted** hypothesis, **executed** the
+artifact under the sandboxed runner, **scored** it (`pass`), and **selected** (promoted).
+The metabolism runs as a daemon and theorizes hourly.
 
 ## Green bar
 

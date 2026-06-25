@@ -50,15 +50,17 @@ crates/
     candidate.rs · spec.rs   candidates + the heritable genotype (Weismann barrier)
     trial.rs · score.rs · selection.rs · regression_guard.rs   testing & selection
     mutation.rs · pattern_memory.rs · lineage.rs   variation, memory, ancestry
+    thread.rs       the factory's questions + theories (the Interpret step)
   sense/    substrate-sense (lib) — perception of the host -> observations (periphery)
   llm/      substrate-llm (lib)   — the LLM seam: boundary-gated consult (periphery)
   exec/     substrate-exec (lib)  — sandboxed script runner (resource limits + cost)
-  cycle/    substrate-cycle (lib) — the metabolism: one full tick (sense→detect→generate
-                                    →test→score→select→measure)
-  cli/      substrate-cli (bin: `substrate`) — the thin shell (scripting/headless)
+  cycle/    substrate-cycle (lib) — the metabolism: one full tick (sense → detect →
+                                    interpret → generate → test → score → select → measure)
+  cli/      substrate-cli (bin: `substrate`) — the shell + daemon control (start/stop/
+                                    reload/install via pidfile + launchd: src/daemon.rs)
   observatory/  substrate-observatory (bin: `observatory`) — the GUI (primary human
-                interface; egui/eframe; read-only; GUI deps isolated here so the
-                kernel stays serde-only and unsafe-free). See ADR-0006.
+                interface; egui/eframe; daemon control bar + the interaction channel;
+                writes only the observer's input; GUI deps isolated). See ADR-0006.
 ```
 
 ## Interfaces
