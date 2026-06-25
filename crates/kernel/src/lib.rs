@@ -10,6 +10,7 @@
 //! not contain the memory-unsafety that would let it be turned against the served.
 #![forbid(unsafe_code)]
 
+pub mod activity;
 pub mod boundary;
 pub mod candidate;
 pub mod capacities;
@@ -18,6 +19,7 @@ pub mod lineage;
 pub mod loops;
 pub mod mutation;
 pub mod observation;
+pub mod parameters;
 pub mod pattern_memory;
 pub mod presence;
 pub mod regression_guard;

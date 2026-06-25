@@ -14,10 +14,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use egui_plot::{Legend, Line, Plot, PlotPoints};
+use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::boundary::{self, Boundary};
 use familiar_kernel::candidate::{self, Candidate};
 use familiar_kernel::loops::{self, Loop};
 use familiar_kernel::observation::{self, Observation};
+use familiar_kernel::parameters::Parameters;
 use familiar_kernel::presence::{self, PresenceSignal};
 use familiar_kernel::service::{self, ServiceSignal};
 use familiar_kernel::thread::{self, Thread};
@@ -35,6 +38,8 @@ struct Snapshot {
     loops: Vec<Loop>,
     candidates: Vec<Candidate>,
     threads: Vec<Thread>,
+    ticks: Vec<ActivityTick>,
+    parameters: Parameters,
     service: ServiceSignal,
     presence: PresenceSignal,
     boundary: Boundary,
@@ -51,6 +56,8 @@ impl Snapshot {
         let loops = loops::load(dir).unwrap_or_default();
         let candidates = candidate::load(dir).unwrap_or_default();
         let threads = thread::load(dir).unwrap_or_default();
+        let ticks = activity::load(dir).unwrap_or_default();
+        let parameters = Parameters::load_or_default(dir);
         let boundary = boundary::load(dir).unwrap_or_else(|e| {
             error = Some(format!("boundary: {e}"));
             Boundary::closed()
@@ -63,6 +70,8 @@ impl Snapshot {
             loops,
             candidates,
             threads,
+            ticks,
+            parameters,
             error,
         }
     }
@@ -78,6 +87,9 @@ struct Glass {
     /// The question Ian has already answered — so it fades out and isn't answered
     /// twice. Persisted to `last_answered.txt` so it survives a restart.
     answered_question: Option<String>,
+    /// A working copy of the shared parameters the settings sliders edit; written to
+    /// disk on Save. Not reset on the 2s refresh, so an in-progress edit isn't clobbered.
+    params_edit: Parameters,
 }
 
 fn read_answered(dir: &Path) -> Option<String> {
@@ -130,12 +142,14 @@ impl Glass {
         let snapshot = Snapshot::load(&data_dir);
         let daemon_status = daemon_cmd(&data_dir, "status");
         let answered_question = read_answered(&data_dir);
+        let params_edit = snapshot.parameters.clone();
         Glass {
             data_dir,
             snapshot,
             response: String::new(),
             daemon_status,
             answered_question,
+            params_edit,
         }
     }
     fn refresh(&mut self) {
@@ -328,6 +342,33 @@ impl eframe::App for Glass {
                 }
             }
 
+            // --- the metabolism at work: a signals chart + a feed of recent actions ---
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new(
+                egui::RichText::new("📈 Activity — the metabolism at work").strong(),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                signals_chart(ui, &self.snapshot.ticks);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("recent actions").weak().small());
+                activity_feed(ui, &self.snapshot.ticks, now_secs());
+            });
+
+            egui::CollapsingHeader::new(egui::RichText::new("🧵 Theories & threads").strong())
+                .default_open(false)
+                .show(ui, |ui| threads_panel(ui, &self.snapshot.threads));
+
+            egui::CollapsingHeader::new(
+                egui::RichText::new("⚙ Settings — shared parameters").strong(),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
+                if settings_panel(ui, &mut self.params_edit, &self.data_dir) {
+                    self.snapshot = Snapshot::load(&self.data_dir);
+                }
+            });
+
             ui.add_space(6.0);
             ui.label(egui::RichText::new("The Three Laws, measured").strong());
             ui.horizontal_wrapped(|ui| {
@@ -425,6 +466,180 @@ impl eframe::App for Glass {
         // gentle auto-refresh so the window tracks the familiar as it runs
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
     }
+}
+
+/// A line chart of the law-signals over the recent ticks — the familiar's vital signs
+/// over time, so liveness is visible at a glance (not just a single current number).
+fn signals_chart(ui: &mut egui::Ui, ticks: &[ActivityTick]) {
+    if ticks.len() < 2 {
+        ui.weak("(the signals chart appears once the metabolism has ticked a few times)");
+        return;
+    }
+    let start = ticks.len().saturating_sub(120); // last ~120 ticks
+    let recent = &ticks[start..];
+    let series = |sel: fn(&ActivityTick) -> f64| -> PlotPoints {
+        recent
+            .iter()
+            .enumerate()
+            .map(|(i, t)| [i as f64, sel(t)])
+            .collect()
+    };
+    Plot::new("signals")
+        .height(160.0)
+        .legend(Legend::default())
+        .include_y(0.0)
+        .include_y(1.0)
+        .show(ui, |p| {
+            p.line(Line::new(series(|t| t.service)).name("service (I)"));
+            p.line(Line::new(series(|t| t.presence)).name("presence (II)"));
+            p.line(Line::new(series(|t| t.capacities)).name("capacities (II)"));
+        });
+}
+
+/// A feed of the most recent *consequential* ticks (skipping quiet ones), newest first —
+/// so the human sees the familiar theorize, pursue, test, and promote as it happens.
+fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
+    egui::ScrollArea::vertical()
+        .max_height(170.0)
+        .id_salt("activity")
+        .show(ui, |ui| {
+            let mut shown = 0;
+            for t in ticks.iter().rev() {
+                if shown >= 14 {
+                    break;
+                }
+                if t.quiet() {
+                    continue;
+                }
+                shown += 1;
+                let mut parts: Vec<String> = Vec::new();
+                if t.theorized {
+                    parts.push("💭 theorized".into());
+                }
+                if t.pursued > 0 {
+                    parts.push(format!("→ pursued {}", t.pursued));
+                }
+                if t.sensed > 0 {
+                    parts.push(format!("👁 sensed {}", t.sensed));
+                }
+                if t.new_candidates > 0 {
+                    parts.push(format!("✦ {} new", t.new_candidates));
+                }
+                if t.tested > 0 {
+                    parts.push(format!("✓ tested {}", t.tested));
+                }
+                if t.promoted > 0 {
+                    parts.push(format!("↑ promoted {}", t.promoted));
+                }
+                if t.mutated > 0 {
+                    parts.push(format!("⤳ mutated {}", t.mutated));
+                }
+                if t.archived > 0 {
+                    parts.push(format!("🗄 archived {}", t.archived));
+                }
+                if t.structural_changed {
+                    parts.push("⚙ world changed".into());
+                }
+                ui.label(format!("{:>5}  {}", ago(now, t.ts), parts.join("  ·  ")));
+            }
+            if shown == 0 {
+                ui.weak(
+                    "(no actions yet — the familiar acts as loops form and you answer its questions)",
+                );
+            }
+        });
+}
+
+/// A compact relative timestamp like `12s`, `5m`, `2h`.
+fn ago(now: i64, then: i64) -> String {
+    let d = (now - then).max(0);
+    if d < 90 {
+        format!("{d}s")
+    } else if d < 5400 {
+        format!("{}m", d / 60)
+    } else {
+        format!("{}h", d / 3600)
+    }
+}
+
+/// The familiar's theories and threads — its questions, interpretations, and the
+/// directions it pursued (its own, `llm`; and Ian's answers, `observer`).
+fn threads_panel(ui: &mut egui::Ui, threads: &[Thread]) {
+    if threads.is_empty() {
+        ui.weak("(no theories yet — they form as the familiar interprets what it observes)");
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .id_salt("threads")
+        .show(ui, |ui| {
+            for t in threads.iter().rev().take(20) {
+                let color = match t.status.as_str() {
+                    "open" => egui::Color32::from_rgb(150, 200, 255),
+                    "pursued" => egui::Color32::from_rgb(180, 180, 140),
+                    "answered" => egui::Color32::from_rgb(110, 140, 110),
+                    _ => egui::Color32::GRAY,
+                };
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(color, format!("[{}]", t.status));
+                        ui.weak(format!("{} · {}", t.id, t.origin));
+                    });
+                    if !t.theory.is_empty() {
+                        ui.label(format!("💭 {}", t.theory));
+                    }
+                    if !t.direction.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("→ {}", t.direction))
+                                .small()
+                                .color(egui::Color32::from_rgb(160, 190, 160)),
+                        );
+                    }
+                });
+            }
+        });
+}
+
+/// The shared-parameters editor. Returns true when Ian saved a change. Co-ownership
+/// (the familiar reviewing/reverting Ian's edits under the Three Laws) is a later brick;
+/// for now these are plain sliders, clamped sane before they reach disk.
+fn settings_panel(ui: &mut egui::Ui, params: &mut Parameters, dir: &Path) -> bool {
+    ui.label(
+        egui::RichText::new(
+            "you set these for now; the familiar will come to co-own them — and may revert a \
+             change it can justify under the Three Laws. Eventually this becomes view-only.",
+        )
+        .weak()
+        .small(),
+    );
+    egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
+        ui.label("theorize every (s)");
+        ui.add(egui::Slider::new(
+            &mut params.theorize_every_secs,
+            30..=7200,
+        ));
+        ui.end_row();
+        ui.label("cadence floor (s)");
+        ui.add(egui::Slider::new(&mut params.interval_floor_secs, 5..=600));
+        ui.end_row();
+        ui.label("cadence ceiling (s)");
+        ui.add(egui::Slider::new(
+            &mut params.interval_ceiling_secs,
+            60..=3600,
+        ));
+        ui.end_row();
+    });
+    let mut saved = false;
+    ui.horizontal(|ui| {
+        if ui.button("Save").clicked() {
+            params.last_set_by = "observer".into();
+            *params = params.clone().sane();
+            let _ = params.save(dir);
+            saved = true;
+        }
+        ui.weak("takes effect on the next theorize / daemon reload");
+    });
+    saved
 }
 
 fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {

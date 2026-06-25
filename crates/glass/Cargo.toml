@@ -13,3 +13,4 @@ path = "src/main.rs"
 familiar-kernel.workspace = true
 eframe = "0.31"
 egui = "0.31"
+egui_plot = "0.31"

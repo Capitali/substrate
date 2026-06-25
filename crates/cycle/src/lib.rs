@@ -24,10 +24,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use familiar_exec as exec;
+use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::candidate::{self, Candidate};
 use familiar_kernel::capacities;
 use familiar_kernel::loops;
 use familiar_kernel::observation;
+use familiar_kernel::parameters::Parameters;
 use familiar_kernel::presence;
 use familiar_kernel::service;
 use familiar_kernel::thread::{self, Thread};
@@ -40,8 +42,6 @@ const QUESTION_FILE: &str = "question.txt";
 const LAST_THEORY_FILE: &str = "last_theory.txt";
 /// The structural fingerprint of the last tick's environment (a single u64).
 const STRUCTURE_FILE: &str = "structure.fp";
-/// How often the factory pauses to form a question + theory (seconds).
-const THEORIZE_EVERY_SECS: i64 = 3600;
 
 /// FNV-1a (64-bit) — the same family the kernel uses for loop ids. Deterministic,
 /// dependency-free; we only need a stable digest, not cryptographic strength.
@@ -171,6 +171,18 @@ fn last_theory_at(dir: &Path) -> i64 {
         .unwrap_or(0)
 }
 
+/// Should the factory pause to form a question + theory this tick? Yes when the cadence
+/// window (a tunable [`Parameters::theorize_every_secs`], default hourly) has elapsed,
+/// **or** when the human has spoken since the last theory — *fresh observer input*. The
+/// second clause is what makes the familiar respond: answering in the Glass records an
+/// `observer`-sourced observation, so the very next tick it forms a fresh question
+/// grounded in that answer, instead of an hour of silence.
+fn theorize_due(dir: &Path, now: i64, obs: &[observation::Observation]) -> bool {
+    let last = last_theory_at(dir);
+    let every = Parameters::load_or_default(dir).sane().theorize_every_secs;
+    now - last >= every || obs.iter().any(|o| o.source == "observer" && o.ts > last)
+}
+
 /// The factory thinks out loud: grounded in what it has observed, it (LLM-)forms a
 /// **question** to ask the human (written to `question.txt` for the interaction
 /// channel) and a **theory** about the patterns (recorded as a thread). Gated by the
@@ -183,7 +195,7 @@ fn maybe_theorize(
     detected: &[loops::Loop],
     allow_llm: bool,
 ) -> io::Result<bool> {
-    if !allow_llm || now - last_theory_at(dir) < THEORIZE_EVERY_SECS {
+    if !allow_llm || !theorize_due(dir, now, obs) {
         return Ok(false);
     }
     let service = service::service_signal(obs).measure;
@@ -513,7 +525,7 @@ pub fn tick(
     // 7. Act — turn open threads into candidate work (executed on a later tick).
     let pursued = pursue_threads(dir)?;
 
-    Ok(TickReport {
+    let report = TickReport {
         sensed,
         loops: detected.len(),
         new_candidates,
@@ -530,7 +542,31 @@ pub fn tick(
         theorized,
         pursued,
         structural_changed,
-    })
+    };
+
+    // 8. Record the tick as activity so the human can *see* the metabolism work — the
+    //    Glass renders this as a feed and a signals-over-time chart.
+    activity::append(
+        dir,
+        &ActivityTick {
+            ts: now,
+            sensed: report.sensed,
+            loops: report.loops,
+            new_candidates: report.new_candidates,
+            tested: report.tested,
+            promoted: report.promoted,
+            mutated: report.mutated,
+            archived: report.archived,
+            theorized: report.theorized,
+            pursued: report.pursued,
+            service: report.service,
+            presence: report.presence,
+            capacities: report.capacities,
+            structural_changed: report.structural_changed,
+        },
+    )?;
+
+    Ok(report)
 }
 
 /// Whether the boundary on disk permits an action of `kind` (fail-closed on error).
@@ -708,6 +744,33 @@ mod tests {
         let c = observation::Observation::new("host", "has", "interface:utun4", "", "s", 1, 1.0);
         let d = observation::Observation::new("host", "has", "interface:en0", "", "s", 1, 1.0);
         assert_ne!(structural_fingerprint(&[c]), structural_fingerprint(&[d]));
+    }
+
+    #[test]
+    fn theorize_is_due_on_fresh_observer_input_within_the_window() {
+        let t = Temp::new("theorize_due");
+        // last theory stamped recently, so the hourly window has NOT elapsed.
+        fs::write(t.0.join(LAST_THEORY_FILE), "1000000").unwrap();
+        // no observer input -> not due
+        assert!(!theorize_due(&t.0, 1_000_100, &[]));
+        // the human spoke since the last theory -> due even inside the window
+        let said =
+            observation::Observation::new("ian", "needs", "x", "", "observer", 1_000_050, 1.0);
+        assert!(theorize_due(&t.0, 1_000_100, std::slice::from_ref(&said)));
+        // and the window elapsing makes it due regardless of input
+        assert!(theorize_due(&t.0, 1_000_000 + 3600, &[]));
+    }
+
+    #[test]
+    fn tick_records_activity() {
+        let t = Temp::new("activity");
+        seed_recurring(&t.0);
+        let r = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
+        let ticks = familiar_kernel::activity::load(&t.0).unwrap();
+        assert_eq!(ticks.len(), 1, "every tick appends one activity record");
+        assert_eq!(ticks[0].service, r.service);
+        assert_eq!(ticks[0].sensed, r.sensed);
+        assert_eq!(ticks[0].ts, 1_000_000);
     }
 
     #[test]

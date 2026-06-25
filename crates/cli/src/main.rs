@@ -432,20 +432,24 @@ fn cmd_run(args: &[String]) -> ExitCode {
     let mut interval: u64 = f.get("interval").and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if unbounded {
+        // The cadence floor/ceiling default from the co-owned parameters (Ian can set
+        // them from the Glass); `--interval` / `--max-interval` still override. Read once
+        // at start — change them live with a daemon reload.
+        let params = familiar_kernel::parameters::Parameters::load_or_default(&dir).sane();
         if interval == 0 {
-            interval = 60; // a sane floor cadence so it isn't a busy loop
+            interval = params.interval_floor_secs; // sane floor; not a busy loop
         }
         // Adaptive structural-fingerprint cadence: `--interval` is the *floor* (the
         // busy cadence), `--max-interval` the ceiling reached when the world goes
-        // quiet (default floor×16, capped at 1h). `--fixed` opts out for a constant
-        // period. The metabolism quickens when the environment or its own work moves
-        // and drowses when nothing changes (see `TickReport::quiet`).
+        // quiet. `--fixed` opts out for a constant period. The metabolism quickens when
+        // the environment or its own work moves and drowses when nothing changes (see
+        // `TickReport::quiet`).
         let floor = interval;
         let fixed = f.contains_key("fixed");
         let ceil: u64 = f
             .get("max-interval")
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| floor.saturating_mul(16).min(3600))
+            .unwrap_or(params.interval_ceiling_secs)
             .max(floor);
         // Make this process visible to `daemon status/start/stop` (incl. when launched
         // by launchd), so the two control paths agree and never double-spawn.
