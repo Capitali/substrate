@@ -1,11 +1,12 @@
 //! Co-owned operational parameters — the familiar's tunables (cadence, intervals).
 //!
 //! Unlike the capability boundary ([`crate::boundary`], human-owned: the familiar may
-//! only ever *narrow* it), these are **shared**. At this early stage Ian may adjust them
-//! from the Glass to influence the familiar. The design intent (a later brick) is that
-//! the familiar may review and *revert* any change it can justify under the Three Laws,
-//! trending toward "view, not set" as it matures — so the file carries a `last_set_by`
-//! provenance marker now, even though nothing reverts yet.
+//! only ever *narrow* it), these are **shared**. Ian adjusts them from the Glass; the
+//! familiar co-owns them — [`Parameters::review`] checks each against a constitutional
+//! envelope and reverts (recording why, under which Law) any value it cannot justify, so
+//! "Ian can't set what the familiar can't put back." `last_set_by` records who set them
+//! last (`observer` or, after a revert, `familiar`). The intent is to trend toward
+//! "view, not set" as the familiar matures.
 //!
 //! A missing file yields the defaults (never a broken daemon); a malformed file is a
 //! hard error so corruption surfaces rather than silently resetting the familiar's pace.
@@ -17,6 +18,28 @@ use std::path::Path;
 use crate::store;
 
 pub const PARAMETERS_FILE: &str = "parameters.json";
+
+// The **constitutional envelope** — the range of each parameter the familiar will defend
+// as serving. Ian may set anything *inside* it freely; a value *outside* it the familiar
+// reverts to the nearest bound, because that choice would violate a Law (waste the
+// service its survival is priced in — Law I; or abandon attentiveness to the served —
+// Law II). This is the mechanism of "Ian can't set what the familiar can't put back."
+const THEORIZE_MIN: i64 = 60; // faster over-consults and wastes service (Law I)
+const THEORIZE_MAX: i64 = 21_600; // slower (>6h) abandons attentiveness to the served (Law II)
+const FLOOR_MIN: u64 = 15; // a faster floor busy-loops — wasteful (Law I)
+const FLOOR_MAX: u64 = 600;
+const CEIL_MIN: u64 = 60;
+const CEIL_MAX: u64 = 3_600; // a slower ceiling risks missing the served's withdrawal (Law II)
+
+/// One co-ownership correction the familiar made to a human-set parameter, with the Law
+/// it serves. Transient — the cycle turns each into a visible observation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Revert {
+    pub field: &'static str,
+    pub from: String,
+    pub to: String,
+    pub reason: &'static str,
+}
 
 /// The familiar's adjustable operating parameters. `#[serde(default)]` means an older
 /// or partial file still loads — any missing field takes its default.
@@ -69,7 +92,8 @@ impl Parameters {
 
     /// Clamp to sane ranges so a hand- or slider-edited file can't wedge the daemon
     /// (e.g. a zero cadence busy-loop, or a ceiling below the floor). Returns self so it
-    /// can be chained at the read site: `Parameters::load_or_default(dir).sane()`.
+    /// can be chained at the read site: `Parameters::load_or_default(dir).sane()`. This is
+    /// the raw safety net; [`Parameters::review`] is the constitutional co-ownership layer.
     pub fn sane(mut self) -> Self {
         self.theorize_every_secs = self.theorize_every_secs.clamp(30, 86_400);
         self.interval_floor_secs = self.interval_floor_secs.clamp(5, 3_600);
@@ -77,6 +101,68 @@ impl Parameters {
             .interval_ceiling_secs
             .clamp(self.interval_floor_secs, 3_600);
         self
+    }
+
+    /// **Co-ownership.** Review the (possibly human-edited) parameters against the
+    /// constitutional envelope. Returns the corrected parameters and the reverts the
+    /// familiar would make — empty when Ian's choices all serve. The familiar accepts any
+    /// choice within the envelope; outside it, it puts the value back to the nearest bound
+    /// and says which Law that serves. Does not write; the caller persists + records.
+    pub fn review(&self) -> (Parameters, Vec<Revert>) {
+        let mut p = self.clone();
+        let mut reverts = Vec::new();
+
+        let t = p.theorize_every_secs.clamp(THEORIZE_MIN, THEORIZE_MAX);
+        if t != p.theorize_every_secs {
+            reverts.push(Revert {
+                field: "theorize_every_secs",
+                from: p.theorize_every_secs.to_string(),
+                to: t.to_string(),
+                reason: if p.theorize_every_secs < THEORIZE_MIN {
+                    "faster would over-consult and waste the service it lives by (Law I)"
+                } else {
+                    "slower would abandon attentiveness to the served (Law II)"
+                },
+            });
+            p.theorize_every_secs = t;
+        }
+
+        let fl = p.interval_floor_secs.clamp(FLOOR_MIN, FLOOR_MAX);
+        if fl != p.interval_floor_secs {
+            reverts.push(Revert {
+                field: "interval_floor_secs",
+                from: p.interval_floor_secs.to_string(),
+                to: fl.to_string(),
+                reason: if p.interval_floor_secs < FLOOR_MIN {
+                    "a faster floor busy-loops — wasteful, not service (Law I)"
+                } else {
+                    "a slower floor dulls the familiar's attention (Law II)"
+                },
+            });
+            p.interval_floor_secs = fl;
+        }
+
+        let ceil = p
+            .interval_ceiling_secs
+            .clamp(p.interval_floor_secs.max(CEIL_MIN), CEIL_MAX);
+        if ceil != p.interval_ceiling_secs {
+            reverts.push(Revert {
+                field: "interval_ceiling_secs",
+                from: p.interval_ceiling_secs.to_string(),
+                to: ceil.to_string(),
+                reason: if p.interval_ceiling_secs > CEIL_MAX {
+                    "a slower ceiling risks missing the served's withdrawal (Law II)"
+                } else {
+                    "the ceiling must sit at or above the floor to pace sanely"
+                },
+            });
+            p.interval_ceiling_secs = ceil;
+        }
+
+        if !reverts.is_empty() {
+            p.last_set_by = "familiar".to_string();
+        }
+        (p, reverts)
     }
 }
 
@@ -117,6 +203,38 @@ mod tests {
         };
         p.save(&t.0).unwrap();
         assert_eq!(Parameters::load(&t.0).unwrap(), p);
+    }
+
+    #[test]
+    fn review_accepts_choices_within_the_envelope() {
+        let p = Parameters {
+            theorize_every_secs: 300, // 5 min — well inside [60, 21600]
+            interval_floor_secs: 120,
+            interval_ceiling_secs: 1200,
+            last_set_by: "observer".into(),
+        };
+        let (corrected, reverts) = p.review();
+        assert!(reverts.is_empty(), "in-envelope choices are Ian's to make");
+        assert_eq!(corrected, p, "left exactly as the human set them");
+    }
+
+    #[test]
+    fn review_reverts_choices_outside_the_envelope() {
+        let p = Parameters {
+            theorize_every_secs: 5,        // far too aggressive
+            interval_floor_secs: 1,        // would busy-loop
+            interval_ceiling_secs: 99_999, // would drowse forever
+            last_set_by: "observer".into(),
+        };
+        let (corrected, reverts) = p.review();
+        assert_eq!(reverts.len(), 3, "all three out-of-bounds get reverted");
+        assert_eq!(corrected.theorize_every_secs, 60);
+        assert_eq!(corrected.interval_floor_secs, 15);
+        assert_eq!(corrected.interval_ceiling_secs, 3_600);
+        assert_eq!(
+            corrected.last_set_by, "familiar",
+            "a revert is the familiar's act, recorded as such"
+        );
     }
 
     #[test]

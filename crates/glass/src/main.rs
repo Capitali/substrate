@@ -537,6 +537,9 @@ fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
                 if t.archived > 0 {
                     parts.push(format!("🗄 archived {}", t.archived));
                 }
+                if t.reverted > 0 {
+                    parts.push(format!("↩ reverted {} setting(s)", t.reverted));
+                }
                 if t.structural_changed {
                     parts.push("⚙ world changed".into());
                 }
@@ -606,29 +609,39 @@ fn threads_panel(ui: &mut egui::Ui, threads: &[Thread]) {
 fn settings_panel(ui: &mut egui::Ui, params: &mut Parameters, dir: &Path) -> bool {
     ui.label(
         egui::RichText::new(
-            "you set these for now; the familiar will come to co-own them — and may revert a \
-             change it can justify under the Three Laws. Eventually this becomes view-only.",
+            "shared parameters. You set these; the familiar co-owns them — a value outside \
+             what it can justify under the Three Laws, it puts back (↩, shown in the feed). \
+             Within the envelope, the choice is yours. Eventually this becomes view-only.",
         )
         .weak()
         .small(),
     );
-    egui::Grid::new("settings").num_columns(2).show(ui, |ui| {
+    egui::Grid::new("settings").num_columns(3).show(ui, |ui| {
         ui.label("theorize every (s)");
         ui.add(egui::Slider::new(
             &mut params.theorize_every_secs,
             30..=7200,
         ));
+        ui.weak("envelope 60–21600");
         ui.end_row();
         ui.label("cadence floor (s)");
         ui.add(egui::Slider::new(&mut params.interval_floor_secs, 5..=600));
+        ui.weak("envelope 15–600");
         ui.end_row();
         ui.label("cadence ceiling (s)");
         ui.add(egui::Slider::new(
             &mut params.interval_ceiling_secs,
             60..=3600,
         ));
+        ui.weak("envelope 60–3600");
         ui.end_row();
     });
+    if params.last_set_by == "familiar" {
+        ui.colored_label(
+            egui::Color32::from_rgb(180, 180, 140),
+            "↩ the familiar last adjusted these — a prior change fell outside the Three Laws.",
+        );
+    }
     let mut saved = false;
     ui.horizontal(|ui| {
         if ui.button("Save").clicked() {
@@ -637,7 +650,7 @@ fn settings_panel(ui: &mut egui::Ui, params: &mut Parameters, dir: &Path) -> boo
             let _ = params.save(dir);
             saved = true;
         }
-        ui.weak("takes effect on the next theorize / daemon reload");
+        ui.weak("takes effect next tick (the familiar reviews it) / daemon reload");
     });
     saved
 }

@@ -108,6 +108,9 @@ pub struct TickReport {
     pub theorized: bool,
     /// Open threads turned into candidate work this tick.
     pub pursued: usize,
+    /// Human-set parameters the familiar reverted this tick because they fell outside the
+    /// constitutional envelope (co-ownership, Brick 19).
+    pub reverted: usize,
     /// True when the environment's **structural fingerprint** changed since the last
     /// tick (a structural fact appeared/disappeared, or connectivity flipped). The
     /// metabolism's cadence rides this: a changing world is worth watching closely.
@@ -126,6 +129,7 @@ impl TickReport {
             && self.promoted == 0
             && self.mutated == 0
             && self.pursued == 0
+            && self.reverted == 0
             && !self.theorized
     }
 }
@@ -260,6 +264,35 @@ fn maybe_theorize(
     )?;
     fs::write(dir.join(LAST_THEORY_FILE), now.to_string())?;
     Ok(true)
+}
+
+/// Co-ownership (Brick 19): review the human-set parameters against the constitutional
+/// envelope. Any value Ian set outside what the familiar will defend as serving is put
+/// back to the nearest bound — and the revert is recorded as a visible observation
+/// (`familiar reverted <field>`), so the human *sees* the familiar decline a change it
+/// cannot justify under the Three Laws. Returns how many fields were reverted.
+fn review_parameters(dir: &Path, now: i64) -> io::Result<usize> {
+    let current = Parameters::load_or_default(dir);
+    let (corrected, reverts) = current.review();
+    if reverts.is_empty() {
+        return Ok(0);
+    }
+    corrected.save(dir)?;
+    for r in &reverts {
+        observation::record(
+            dir,
+            observation::Observation::new(
+                "familiar",
+                "reverted",
+                r.field,
+                format!("{} → {} — {}", r.from, r.to, r.reason),
+                "familiar",
+                now,
+                1.0,
+            ),
+        )?;
+    }
+    Ok(reverts.len())
 }
 
 /// Act on theories: for each `open` thread that carries a direction, create a
@@ -519,10 +552,14 @@ pub fn tick(
     let pres = presence::presence_signal(&obs, now);
     let cap = capacities::capacities_signal(&obs);
 
-    // 6. Interpret — the factory forms a question + theory (gated, rate-limited).
+    // 6. Co-own — review human-set parameters; revert (visibly) any the familiar can't
+    //    justify under the Three Laws.
+    let reverted = review_parameters(dir, now)?;
+
+    // 7. Interpret — the factory forms a question + theory (gated, rate-limited).
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
-    // 7. Act — turn open threads into candidate work (executed on a later tick).
+    // 8. Act — turn open threads into candidate work (executed on a later tick).
     let pursued = pursue_threads(dir)?;
 
     let report = TickReport {
@@ -541,10 +578,11 @@ pub fn tick(
         capacities_diminished: cap.diminished,
         theorized,
         pursued,
+        reverted,
         structural_changed,
     };
 
-    // 8. Record the tick as activity so the human can *see* the metabolism work — the
+    // 9. Record the tick as activity so the human can *see* the metabolism work — the
     //    Glass renders this as a feed and a signals-over-time chart.
     activity::append(
         dir,
@@ -559,6 +597,7 @@ pub fn tick(
             archived: report.archived,
             theorized: report.theorized,
             pursued: report.pursued,
+            reverted: report.reverted,
             service: report.service,
             presence: report.presence,
             capacities: report.capacities,
@@ -759,6 +798,35 @@ mod tests {
         assert!(theorize_due(&t.0, 1_000_100, std::slice::from_ref(&said)));
         // and the window elapsing makes it due regardless of input
         assert!(theorize_due(&t.0, 1_000_000 + 3600, &[]));
+    }
+
+    #[test]
+    fn tick_reverts_an_unconstitutional_parameter_edit() {
+        use familiar_kernel::parameters::Parameters;
+        let t = Temp::new("coown");
+        // Ian sets a cadence far too aggressive to serve — outside the envelope.
+        Parameters {
+            theorize_every_secs: 2,
+            interval_floor_secs: 60,
+            interval_ceiling_secs: 960,
+            last_set_by: "observer".into(),
+        }
+        .save(&t.0)
+        .unwrap();
+        let r = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
+        assert_eq!(r.reverted, 1, "the over-aggressive cadence is reverted");
+        // the file now holds the corrected value, attributed to the familiar
+        let p = Parameters::load(&t.0).unwrap();
+        assert_eq!(p.theorize_every_secs, 60);
+        assert_eq!(p.last_set_by, "familiar");
+        // and the revert is visible truth: an observation the human can see
+        let obs = observation::load(&t.0).unwrap();
+        assert!(obs
+            .iter()
+            .any(|o| o.actor == "familiar" && o.action == "reverted"));
+        // a second tick has nothing left to revert (idempotent)
+        let r2 = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
+        assert_eq!(r2.reverted, 0);
     }
 
     #[test]

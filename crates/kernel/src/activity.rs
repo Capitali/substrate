@@ -28,6 +28,9 @@ pub struct ActivityTick {
     pub archived: usize,
     pub theorized: bool,
     pub pursued: usize,
+    /// Human-set parameters the familiar reverted this tick (co-ownership, Brick 19).
+    #[serde(default)]
+    pub reverted: usize,
     pub service: f64,
     pub presence: f64,
     pub capacities: f64,
@@ -92,6 +95,7 @@ mod tests {
             archived: 0,
             theorized: false,
             pursued: 0,
+            reverted: 0,
             service: 0.4,
             presence: 0.8,
             capacities: 0.75,
