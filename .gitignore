@@ -1,7 +1,10 @@
 /target
 **/*.rs.bk
-# Runtime state — derived/rebuildable, not source.
+# Runtime state — derived/rebuildable, not source. (Renamed from substrate_data.)
+/familiar_data
 /substrate_data
+# macOS directory metadata — junk, never source.
+.DS_Store
 # Secrets — never committed (the *.example templates are fine).
 *.env
 !*.env.example

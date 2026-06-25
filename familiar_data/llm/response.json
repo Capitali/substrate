@@ -1,5 +1,0 @@
-{
-  "question": "What criteria should I use to identify 'unused or unusable' applications and data?",
-  "theory": "Ian is engaged in system maintenance and optimization, potentially related to his 'substrate' project, and is looking for assistance in identifying and removing cruft. The mention of 'nmap' and 'log file rotation' further supports a focus on system health and security.",
-  "direction": "Propose a method for listing installed applications and large data files, and then ask Ian how he would like to proceed with categorization or cleanup based on that information."
-}
