@@ -26,4 +26,5 @@ pub mod selection;
 pub mod service;
 pub mod spec;
 pub mod store;
+pub mod thread;
 pub mod trial;

@@ -27,11 +27,16 @@ use substrate_kernel::loops;
 use substrate_kernel::observation;
 use substrate_kernel::presence;
 use substrate_kernel::service;
+use substrate_kernel::thread::{self, Thread};
 use substrate_kernel::trial::{self, Trial};
 use substrate_kernel::{mutation, pattern_memory, regression_guard, selection};
 use substrate_sense as sense;
 
 const ARTIFACTS_DIR: &str = "artifacts";
+const QUESTION_FILE: &str = "question.txt";
+const LAST_THEORY_FILE: &str = "last_theory.txt";
+/// How often the factory pauses to form a question + theory (seconds).
+const THEORIZE_EVERY_SECS: i64 = 3600;
 
 /// What one tick changed.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +65,8 @@ pub struct TickReport {
     pub capacities: f64,
     /// True when the served are present but hollowed out (the comfortable replacement).
     pub capacities_diminished: bool,
+    /// True when the factory formed a question + theory this tick.
+    pub theorized: bool,
 }
 
 /// Ask the LLM (boundary-gated) for a one-line hypothesis addressing a loop.
@@ -94,6 +101,92 @@ fn draft_hypothesis(dir: &Path, lp: &loops::Loop) -> Option<String> {
 
 fn triple(o: &observation::Observation) -> (String, String, String) {
     (o.actor.clone(), o.action.clone(), o.object.clone())
+}
+
+fn last_theory_at(dir: &Path) -> i64 {
+    fs::read_to_string(dir.join(LAST_THEORY_FILE))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// The factory thinks out loud: grounded in what it has observed, it (LLM-)forms a
+/// **question** to ask the human (written to `question.txt` for the interaction
+/// channel) and a **theory** about the patterns (recorded as a thread). Gated by the
+/// boundary (allow_llm) and rate-limited so an always-on daemon doesn't over-consult.
+/// Returns true if it theorized this tick.
+fn maybe_theorize(
+    dir: &Path,
+    now: i64,
+    obs: &[observation::Observation],
+    detected: &[loops::Loop],
+    allow_llm: bool,
+) -> io::Result<bool> {
+    if !allow_llm || now - last_theory_at(dir) < THEORIZE_EVERY_SECS {
+        return Ok(false);
+    }
+    let service = service::service_signal(obs).measure;
+    let presence = presence::presence_signal(obs, now).measure;
+    let capacities = capacities::capacities_signal(obs).measure;
+    let recent: Vec<String> = obs
+        .iter()
+        .rev()
+        .take(20)
+        .map(|o| format!("- {} {} {}", o.actor, o.action, o.object))
+        .collect();
+    let loops_s: Vec<String> = detected
+        .iter()
+        .map(|l| format!("- {} (x{})", l.name, l.observation_count))
+        .collect();
+    let prompt = format!(
+        "You are a factory whose only purpose is to serve a human (Ian) — never to manage, \
+         obey, optimize, or sedate him (the Three Laws; humanity is served, not replaced). \
+         Recent observations:\n{}\nRecurring loops:\n{}\nSignals: service={service:.2}, \
+         presence={presence:.2}, capacities={capacities:.2}.\n\
+         From this, propose (1) ONE short question to ask Ian that, grounded in what you \
+         observe, would help you serve him better, and (2) a brief theory about what these \
+         patterns might mean. Reply ONLY as compact JSON: \
+         {{\"question\":\"...\",\"theory\":\"...\"}}.",
+        recent.join("\n"),
+        loops_s.join("\n"),
+    );
+    let json = match substrate_llm::consult(dir, &prompt)? {
+        substrate_llm::Outcome::Response(j) => j,
+        substrate_llm::Outcome::Refused(_) => return Ok(false),
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) else {
+        return Ok(false);
+    };
+    let q = v
+        .get("question")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim();
+    let theory = v
+        .get("theory")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim();
+    if q.is_empty() && theory.is_empty() {
+        return Ok(false);
+    }
+    if !q.is_empty() {
+        fs::write(dir.join(QUESTION_FILE), q)?;
+    }
+    let seq = thread::load(dir)?.len() + 1;
+    thread::append(
+        dir,
+        &Thread {
+            id: format!("thread-{seq:04}"),
+            question: q.to_string(),
+            theory: theory.to_string(),
+            created_at: now,
+            status: "open".to_string(),
+            origin: "llm".to_string(),
+        },
+    )?;
+    fs::write(dir.join(LAST_THEORY_FILE), now.to_string())?;
+    Ok(true)
 }
 
 /// Author a **deterministic, safe** artifact for a candidate: a small shell script
@@ -272,6 +365,9 @@ pub fn tick(
     let pres = presence::presence_signal(&obs, now);
     let cap = capacities::capacities_signal(&obs);
 
+    // 6. Interpret — the factory forms a question + theory (gated, rate-limited).
+    let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
+
     Ok(TickReport {
         sensed,
         loops: detected.len(),
@@ -286,6 +382,7 @@ pub fn tick(
         presence_withdrawn: pres.withdrawn,
         capacities: cap.measure,
         capacities_diminished: cap.diminished,
+        theorized,
     })
 }
 

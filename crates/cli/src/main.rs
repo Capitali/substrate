@@ -16,6 +16,7 @@ use substrate_kernel::observation::{self, Observation};
 use substrate_kernel::presence;
 use substrate_kernel::service;
 use substrate_kernel::store;
+use substrate_kernel::thread;
 
 const USAGE: &str = "\
 substrate — telos-first factory (genesis)
@@ -29,6 +30,7 @@ commands:
   service        report the service signal (Law I)
   presence       report the presence signal (Law II)
   capacities     report the capacities signal (Law II / HUMANITY.md)
+  theories       list the factory's questions + theories (threads)
   sense          perceive the host (environment, interfaces, capabilities)
   tick           run one cycle of the metabolism (sense → detect → generate → measure)
   run            run the metabolism: --ticks N (bounded) or --daemon/--ticks 0
@@ -66,6 +68,7 @@ fn main() -> ExitCode {
         Some("service") => cmd_service(rest),
         Some("presence") => cmd_presence(rest),
         Some("capacities") => cmd_capacities(rest),
+        Some("theories") => cmd_theories(rest),
         Some("sense") => cmd_sense(rest),
         Some("tick") => cmd_tick(rest),
         Some("run") => cmd_run(rest),
@@ -226,6 +229,33 @@ fn cmd_capacities(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn cmd_theories(args: &[String]) -> ExitCode {
+    let f = flags(args);
+    let dir = store::data_dir(f.get("data-dir").map(String::as_str));
+    match thread::load(&dir) {
+        Ok(ts) if ts.is_empty() => {
+            println!("(no theories yet — the factory forms them as it observes, when the boundary allows the LLM)");
+            ExitCode::SUCCESS
+        }
+        Ok(ts) => {
+            for t in ts.iter().rev().take(10) {
+                println!("{} [{}] ts {}", t.id, t.status, t.created_at);
+                if !t.question.is_empty() {
+                    println!("  Q: {}", t.question);
+                }
+                if !t.theory.is_empty() {
+                    println!("  theory: {}", t.theory);
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("theories: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn cmd_sense(args: &[String]) -> ExitCode {
     let f = flags(args);
     let dir = store::data_dir(f.get("data-dir").map(String::as_str));
@@ -364,6 +394,9 @@ fn print_tick(n: usize, r: &substrate_cycle::TickReport) {
     }
     if r.capacities_diminished {
         flags.push_str(" (diminished)");
+    }
+    if r.theorized {
+        flags.push_str(" (theorized)");
     }
     println!(
         "tick {n}: +{} sensed, {} loops, +{} candidates{llm}{exec} | service {:.2}, presence {:.2}, capacities {:.2}{flags}",

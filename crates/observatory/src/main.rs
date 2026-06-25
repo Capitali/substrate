@@ -20,6 +20,7 @@ use substrate_kernel::loops::{self, Loop};
 use substrate_kernel::observation::{self, Observation};
 use substrate_kernel::presence::{self, PresenceSignal};
 use substrate_kernel::service::{self, ServiceSignal};
+use substrate_kernel::thread::{self, Thread};
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -33,6 +34,7 @@ struct Snapshot {
     observations: Vec<Observation>,
     loops: Vec<Loop>,
     candidates: Vec<Candidate>,
+    threads: Vec<Thread>,
     service: ServiceSignal,
     presence: PresenceSignal,
     boundary: Boundary,
@@ -48,6 +50,7 @@ impl Snapshot {
         });
         let loops = loops::load(dir).unwrap_or_default();
         let candidates = candidate::load(dir).unwrap_or_default();
+        let threads = thread::load(dir).unwrap_or_default();
         let boundary = boundary::load(dir).unwrap_or_else(|e| {
             error = Some(format!("boundary: {e}"));
             Boundary::closed()
@@ -59,6 +62,7 @@ impl Snapshot {
             observations,
             loops,
             candidates,
+            threads,
             error,
         }
     }
@@ -258,6 +262,17 @@ impl eframe::App for Observatory {
                         );
                     });
                 });
+
+            if let Some(t) = self.snapshot.threads.last() {
+                if !t.theory.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("💭 the factory is thinking: {}", t.theory))
+                            .italics()
+                            .color(egui::Color32::from_rgb(180, 180, 140)),
+                    );
+                }
+            }
 
             ui.add_space(6.0);
             ui.label(egui::RichText::new("The Three Laws, measured").strong());
