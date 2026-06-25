@@ -9,6 +9,12 @@ this file is the human-readable summary.
 ## [Unreleased]
 
 ### Added
+- **The factory theorizes (Brick 14):** the Interpret step — `kernel/thread.rs` (a
+  Thread = question + theory) and `cycle::maybe_theorize` (boundary-gated, hourly):
+  grounded in recent observations/loops/signals, the LLM forms a question (→
+  `question.txt`, shown in the GUI interaction panel as the factory's *own* question)
+  and a theory (→ a thread). CLI `theories`; the Observatory shows the latest theory.
+  Threads are reasoning *about* the truth, never new truth.
 - **Daemon control + launchd (Brick 12):** `substrate daemon status|start|stop|reload`
   (pidfile-managed background process) and `install|uninstall` (a launchd LaunchAgent,
   `io.river.substrate`, starts at login). `run --daemon` records its own pid so launchd
