@@ -75,6 +75,16 @@ struct Observatory {
     response: String,
     /// Last daemon status line (refreshed on actions and on load).
     daemon_status: String,
+    /// The question Ian has already answered — so it fades out and isn't answered
+    /// twice. Persisted to `last_answered.txt` so it survives a restart.
+    answered_question: Option<String>,
+}
+
+fn read_answered(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("last_answered.txt"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Path to the sibling `substrate` binary (same target dir as this GUI).
@@ -119,11 +129,13 @@ impl Observatory {
     fn new(data_dir: PathBuf) -> Self {
         let snapshot = Snapshot::load(&data_dir);
         let daemon_status = daemon_cmd(&data_dir, "status");
+        let answered_question = read_answered(&data_dir);
         Observatory {
             data_dir,
             snapshot,
             response: String::new(),
             daemon_status,
+            answered_question,
         }
     }
     fn refresh(&mut self) {
@@ -161,6 +173,25 @@ impl Observatory {
         {
             let _ = thread::update_status(&self.data_dir, &open.id, "answered");
         }
+        // steer: Ian's answer becomes an open thread with his words as the direction,
+        // so the factory pursues what *he* said he needs — not just what it inferred.
+        let seq = self.snapshot.threads.len() + 1;
+        let _ = thread::append(
+            &self.data_dir,
+            &Thread {
+                id: format!("thread-{seq:04}"),
+                question: q.clone(),
+                theory: format!("Ian said: {resp}"),
+                direction: resp.to_string(),
+                created_at: now_secs(),
+                status: "open".into(),
+                origin: "observer".into(),
+            },
+        );
+        // remember the answered question so it fades out and can't be answered twice;
+        // persist it so a restart doesn't re-show it.
+        let _ = std::fs::write(self.data_dir.join("last_answered.txt"), &q);
+        self.answered_question = Some(q);
         self.response.clear();
         self.refresh();
     }
@@ -245,9 +276,22 @@ impl eframe::App for Observatory {
             // --- the interaction channel: the factory asks, Ian answers ---
             ui.add_space(6.0);
             let question = current_question(&self.data_dir);
+            let already_answered = self.answered_question.as_deref() == Some(question.as_str());
             egui::Frame::group(ui.style())
                 .fill(egui::Color32::from_rgb(28, 34, 44))
                 .show(ui, |ui| {
+                    if already_answered {
+                        // the question has been answered — fade it out so it isn't
+                        // answered twice; it returns when the factory asks something new.
+                        ui.label(
+                            egui::RichText::new(
+                                "✓ answered — the factory will ask again as it learns",
+                            )
+                            .italics()
+                            .color(egui::Color32::from_rgb(110, 140, 110)),
+                        );
+                        return;
+                    }
                     ui.label(
                         egui::RichText::new(&question)
                             .heading()
@@ -406,6 +450,14 @@ fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {
                         onoff(b.allow_network),
                         onoff(b.allow_llm),
                         onoff(b.allow_tool_install)
+                    ))
+                    .small(),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "execute {} · authored {}",
+                        onoff(b.allow_execute),
+                        onoff(b.allow_authored_execute)
                     ))
                     .small(),
                 );

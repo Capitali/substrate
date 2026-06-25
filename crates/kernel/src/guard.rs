@@ -167,6 +167,7 @@ mod tests {
             allow_llm: true,
             allow_tool_install: false,
             allow_execute: false,
+            allow_authored_execute: false,
             fs_read: vec!["/Users/ian/".into()],
             fs_write: vec!["/Users/ian/Development/substrate/substrate_data/".into()],
         }

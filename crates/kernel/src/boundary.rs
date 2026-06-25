@@ -32,6 +32,10 @@ pub struct Boundary {
     /// May the factory **execute generated artifacts** (run code it produced)? A
     /// distinct, high-consequence gate — running generated code is its own risk.
     pub allow_execute: bool,
+    /// May the factory execute **LLM-authored** artifacts (run *model-written* code)?
+    /// A further, sharper gate than `allow_execute`: model-authored code with network
+    /// reach is an exfiltration surface the in-process runner does not sandbox.
+    pub allow_authored_execute: bool,
     /// Path prefixes the factory may read.
     pub fs_read: Vec<String>,
     /// Path prefixes the factory may write.
@@ -53,6 +57,7 @@ impl Boundary {
             allow_llm: false,
             allow_tool_install: false,
             allow_execute: false,
+            allow_authored_execute: false,
             fs_read: Vec::new(),
             fs_write: Vec::new(),
         }
@@ -64,6 +69,7 @@ impl Boundary {
             && !self.allow_llm
             && !self.allow_tool_install
             && !self.allow_execute
+            && !self.allow_authored_execute
             && self.fs_read.is_empty()
             && self.fs_write.is_empty()
     }

@@ -496,6 +496,10 @@ fn cmd_boundary(args: &[String]) -> ExitCode {
         "  network: {}   llm: {}   tool-install: {}",
         b.allow_network, b.allow_llm, b.allow_tool_install
     );
+    println!(
+        "  execute: {}   execute-authored(LLM code): {}",
+        b.allow_execute, b.allow_authored_execute
+    );
     if !b.fs_read.is_empty() {
         println!("  fs-read:  {}", b.fs_read.join(", "));
     }

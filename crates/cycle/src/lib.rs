@@ -228,20 +228,49 @@ fn pursue_threads(dir: &Path) -> io::Result<usize> {
     Ok(pursued)
 }
 
-/// Author a **deterministic, safe** artifact for a candidate: a small shell script
-/// that reports what it addresses and exits cleanly. (Executing LLM-authored
-/// *solutions* is a later, separately-gated step; for now the artifact is benign so
-/// the test→score→select loop runs without running model-authored code.)
-fn author_artifact(dir: &Path, c: &Candidate) -> io::Result<PathBuf> {
+/// A deterministic, benign artifact: reports what it addresses and exits cleanly.
+fn deterministic_script(c: &Candidate) -> String {
+    let hyp = c.hypothesis.replace('\'', "");
+    format!(
+        "#!/bin/sh\n# {id} addressing {lp}\necho 'substrate candidate {id}'\necho 'hypothesis: {hyp}'\n",
+        id = c.id,
+        lp = c.loop_id,
+    )
+}
+
+/// Ask the LLM to author an actual solution script for the candidate's hypothesis.
+/// (call_llm.sh validates JSON, so we ask for `{"script":...}`.) None on refusal/empty.
+fn author_artifact_llm(dir: &Path, c: &Candidate) -> Option<String> {
+    let prompt = format!(
+        "Write a short POSIX /bin/sh script that takes ONE concrete, safe step toward this \
+         goal, in service of a human: \"{}\". It must be self-contained, write files only \
+         under the current directory, must NOT read or transmit any personal data, and exit \
+         0 on success. Reply ONLY as compact JSON: {{\"script\":\"...\"}} (escape newlines).",
+        c.hypothesis.replace('"', "'")
+    );
+    match substrate_llm::consult(dir, &prompt) {
+        Ok(substrate_llm::Outcome::Response(json)) => {
+            serde_json::from_str::<serde_json::Value>(&json)
+                .ok()
+                .and_then(|v| v.get("script").and_then(|s| s.as_str()).map(String::from))
+                .filter(|s| !s.trim().is_empty())
+        }
+        _ => None,
+    }
+}
+
+/// Author an artifact for a candidate. With `authored` (the human opened
+/// `allow_authored_execute`), the LLM writes a real solution script; otherwise a
+/// deterministic, benign one. Either way it runs under the sandboxed runner.
+fn author_artifact(dir: &Path, c: &Candidate, authored: bool) -> io::Result<PathBuf> {
     let adir = dir.join(ARTIFACTS_DIR);
     fs::create_dir_all(&adir)?;
     let path = adir.join(format!("{}.sh", c.id));
-    let hyp = c.hypothesis.replace('\'', "");
-    let script = format!(
-        "#!/bin/sh\n# {id} addressing loop {lp}\necho 'substrate candidate {id}'\necho 'hypothesis: {hyp}'\n",
-        id = c.id,
-        lp = c.loop_id,
-    );
+    let script = if authored {
+        author_artifact_llm(dir, c).unwrap_or_else(|| deterministic_script(c))
+    } else {
+        deterministic_script(c)
+    };
     fs::write(&path, script)?;
     Ok(path)
 }
@@ -278,7 +307,11 @@ fn trial_from_run(id: String, cid: &str, r: &exec::RunResult, limits: &exec::Lim
 
 /// Execute, score, and select every `generated` candidate (gated upstream by
 /// allow_execute). Returns (tested, promoted, mutated, archived).
-fn run_execution(dir: &Path, rigor: f64) -> io::Result<(usize, usize, usize, usize)> {
+fn run_execution(
+    dir: &Path,
+    rigor: f64,
+    authored: bool,
+) -> io::Result<(usize, usize, usize, usize)> {
     let pending: Vec<Candidate> = candidate::load(dir)?
         .into_iter()
         .filter(|c| c.status == "generated")
@@ -287,7 +320,7 @@ fn run_execution(dir: &Path, rigor: f64) -> io::Result<(usize, usize, usize, usi
     let (mut tested, mut promoted, mut mutated, mut archived) = (0, 0, 0, 0);
 
     for c in &pending {
-        let script = author_artifact(dir, c)?;
+        let script = author_artifact(dir, c, authored)?;
         let run = exec::run_script(&script, &limits)?;
         let tseq = trial::load(dir)?.len() + 1;
         let t = trial_from_run(format!("trial-{tseq:04}"), &c.id, &run, &limits);
@@ -341,12 +374,14 @@ fn run_execution(dir: &Path, rigor: f64) -> io::Result<(usize, usize, usize, usi
 /// [`tick_gated`]); all other steps are local perception and internal work. When
 /// `allow_llm` is false the cycle never reaches the LLM — candidate hypotheses are
 /// deterministic, and tests stay offline.
+#[allow(clippy::too_many_arguments)]
 pub fn tick(
     dir: &Path,
     now: i64,
     allow_connectivity: bool,
     allow_llm: bool,
     allow_execute: bool,
+    allow_authored_execute: bool,
 ) -> io::Result<TickReport> {
     // 1. Sense — record only triples not already present (structural dedup).
     let mut seen: HashSet<(String, String, String)> =
@@ -393,8 +428,11 @@ pub fn tick(
     }
 
     // 4. Test → score → select (only when a human has opened the execute gate).
+    //    Artifacts are LLM-authored only when the *authored* gate is also open and the
+    //    LLM is reachable — running model-written code is its own deliberate choice.
+    let authored = allow_authored_execute && allow_llm;
     let (tested, promoted, mutated, archived) = if allow_execute {
-        run_execution(dir, 0.0)?
+        run_execution(dir, 0.0, authored)?
     } else {
         (0, 0, 0, 0)
     };
@@ -454,6 +492,14 @@ pub fn execute_allowed(dir: &Path) -> bool {
     boundary_allows(dir, substrate_kernel::guard::ActionKind::ExecuteArtifact)
 }
 
+/// Resolve whether the boundary permits executing *LLM-authored* artifacts.
+pub fn authored_execute_allowed(dir: &Path) -> bool {
+    use substrate_kernel::boundary;
+    boundary::load(dir)
+        .map(|b| b.allow_authored_execute)
+        .unwrap_or(false)
+}
+
 /// Convenience: a tick whose connectivity, LLM use, and execution are gated by the
 /// boundary on disk. This is what the daemon runs — outward reach (and running
 /// generated code) only where a human opened that gate.
@@ -464,6 +510,7 @@ pub fn tick_gated(dir: &Path, now: i64) -> io::Result<TickReport> {
         connectivity_allowed(dir),
         llm_allowed(dir),
         execute_allowed(dir),
+        authored_execute_allowed(dir),
     )
 }
 
@@ -508,7 +555,7 @@ mod tests {
     fn first_tick_senses_detects_and_generates() {
         let t = Temp::new("first");
         seed_recurring(&t.0);
-        let r = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        let r = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
         assert!(r.sensed > 0, "host perception should record something");
         assert!(r.loops >= 1, "the recurring triple should form a loop");
         assert!(
@@ -523,8 +570,8 @@ mod tests {
     fn second_tick_is_idempotent_on_static_world() {
         let t = Temp::new("idem");
         seed_recurring(&t.0);
-        let _ = tick(&t.0, 1_000_000, false, false, false).unwrap();
-        let r2 = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        let _ = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
+        let r2 = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
         assert_eq!(r2.sensed, 0, "static host facts are deduped — nothing new");
         assert_eq!(
             r2.new_candidates, 0,
@@ -549,7 +596,7 @@ mod tests {
             },
         )
         .unwrap();
-        let r = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        let r = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
         assert_eq!(r.pursued, 1);
         // a candidate was created with the thread's direction as its hypothesis
         let cands = candidate::load(&t.0).unwrap();
@@ -558,7 +605,7 @@ mod tests {
         ));
         // the thread is marked pursued, so a second tick doesn't re-pursue it
         assert_eq!(thread::load(&t.0).unwrap()[0].status, "pursued");
-        let r2 = tick(&t.0, 1_000_000, false, false, false).unwrap();
+        let r2 = tick(&t.0, 1_000_000, false, false, false, false).unwrap();
         assert_eq!(r2.pursued, 0);
     }
 
@@ -576,7 +623,7 @@ mod tests {
         let t = Temp::new("exec");
         seed_recurring(&t.0);
         // allow_execute = true: the deterministic artifact runs clean -> promote
-        let r = tick(&t.0, 1_000_000, false, false, true).unwrap();
+        let r = tick(&t.0, 1_000_000, false, false, true, false).unwrap();
         assert!(r.new_candidates >= 1);
         assert_eq!(
             r.tested, r.new_candidates,
@@ -590,7 +637,7 @@ mod tests {
         assert!(!trial::load(&t.0).unwrap().is_empty());
         assert!(!pattern_memory::load(&t.0).unwrap().is_empty());
         // promoted candidate's status updated; re-tick tests nothing new
-        let r2 = tick(&t.0, 1_000_000, false, false, true).unwrap();
+        let r2 = tick(&t.0, 1_000_000, false, false, true, false).unwrap();
         assert_eq!(r2.tested, 0, "no candidates left in 'generated' state");
     }
 }
