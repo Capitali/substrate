@@ -1,5 +1,5 @@
 {
-  "question": "What specific 'maintenance and cleanup' on your past needs would be most beneficial for you right now?",
-  "theory": "Ian is engaged in a development project (Substrate) and is exploring network scanning (nmap). He acknowledges a need to prune or organize past 'needs' which suggests a desire for greater clarity or efficiency in his current workflow, possibly to support the Substrate project or related explorations. The repeated mention of Substrate also indicates it's a primary focus.",
-  "direction": "Offer to help catalog or review the current state of his 'past needs' to identify areas for cleanup, specifically asking for his definition of 'usable' or 'not used'."
+  "question": "What criteria should I use to identify 'unused or unusable' applications and data?",
+  "theory": "Ian is engaged in system maintenance and optimization, potentially related to his 'substrate' project, and is looking for assistance in identifying and removing cruft. The mention of 'nmap' and 'log file rotation' further supports a focus on system health and security.",
+  "direction": "Propose a method for listing installed applications and large data files, and then ask Ian how he would like to proceed with categorization or cleanup based on that information."
 }
