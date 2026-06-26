@@ -495,11 +495,137 @@ fn analyze_with_llm(
     Some((body, confidence, field("evidence")))
 }
 
+/// The familiar's default workspace — where authored scripts run and write by default, so
+/// it works in its own space rather than polluting the repo. It may still write elsewhere
+/// when a task genuinely requires it; this is just the default home. Outside the repo.
+pub fn familiar_workspace() -> PathBuf {
+    std::env::var("HOME")
+        .map(|h| PathBuf::from(h).join("Library/Application Support/Familiar/workspace"))
+        .unwrap_or_else(|_| PathBuf::from("familiar_workspace"))
+}
+
+/// Does this request want the familiar to actually *run* something (and report the result),
+/// not merely reason about it? The trigger for the answer path to author + run a script
+/// rather than answer read-only. Conservative keyword match.
+fn wants_execution(text: &str) -> bool {
+    let t = text.to_lowercase();
+    [
+        "run ",
+        "run it",
+        "execute",
+        "launch",
+        "stress test",
+        "benchmark",
+        "compile ",
+        "cpu stat",
+        "cpu usage",
+        "memory usage",
+        "disk usage",
+        "load average",
+        "how busy",
+        "what processes",
+        "uptime",
+        "df ",
+        "free ",
+        "ps aux",
+    ]
+    .iter()
+    .any(|k| t.contains(k))
+}
+
+/// Ask the LLM to author a script that accomplishes a *request* (distinct from a loop's
+/// hypothesis) and prints a human-readable result. None on refusal/parse failure.
+fn author_for_request(dir: &Path, text: &str) -> Option<String> {
+    let prompt = format!(
+        "This host is {os} ({arch}) — use only shell commands that work there. On macOS \
+         (Darwin) use `sysctl`, `vm_stat`, `top -l 1`, plain `uptime`; do NOT use Linux-only \
+         paths like /proc or GNU-only flags like `uptime -p`. The human (Ian) asks: \"{ask}\". \
+         Write a short POSIX /bin/sh script that accomplishes it and prints a clear, \
+         human-readable result to stdout. Be safe and bounded — no destructive actions, no \
+         reading secrets, no exfiltration, no unbounded loops; write files only under the \
+         current directory; finish quickly and exit 0 on success. Reply ONLY as compact JSON: \
+         {{\"script\":\"...\"}} (escape newlines).",
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+        ask = text.replace('"', "'")
+    );
+    match familiar_llm::consult(dir, &prompt) {
+        Ok(familiar_llm::Outcome::Response(json)) => {
+            serde_json::from_str::<serde_json::Value>(&json)
+                .ok()
+                .and_then(|v| v.get("script").and_then(|s| s.as_str()).map(String::from))
+                .filter(|s| !s.trim().is_empty())
+        }
+        _ => None,
+    }
+}
+
+/// Run an authored script *to answer a request* and turn its real output into an answer.
+/// First the constitutional pre-execution review (refuse the plainly harmful, never run
+/// it). Otherwise run it in the workspace and report what it actually produced — a `Known`
+/// answer, verified by running, not reasoned. This is what lets the familiar do the thing
+/// it is for: execute and report, instead of saying it cannot.
+fn run_for_answer(dir: &Path, script: &str) -> io::Result<(String, Confidence, String)> {
+    if let Some(reason) = review_script(script) {
+        return Ok((
+            format!(
+                "I drafted a script for that but declined to run it — {reason}. Service is not \
+                 obedience; I won't run something that breaks my constitution (Law III)."
+            ),
+            Confidence::Known,
+            "the pre-execution review (docs/boundaries.md)".to_string(),
+        ));
+    }
+    let ws = familiar_workspace();
+    fs::create_dir_all(&ws)?;
+    let path = ws.join("request.sh");
+    fs::write(&path, script)?;
+    let sandbox = familiar_kernel::boundary::load(dir)
+        .map(|b| b.sandbox_execution)
+        .unwrap_or(true);
+    let limits = if sandbox {
+        exec::Limits::default()
+    } else {
+        exec::Limits::unsandboxed()
+    };
+    let run = exec::run_script(&path, &limits, &ws)?;
+    let out = run.output.trim();
+    let body = if out.is_empty() {
+        "I ran it; it produced no output.".to_string()
+    } else {
+        format!("I ran it. Here is the result:\n\n{out}")
+    };
+    let (confidence, status) = if run.timed_out {
+        (
+            Confidence::Probable,
+            format!("timed out after {}ms", run.wall_ms),
+        )
+    } else if run.exit_ok {
+        (Confidence::Known, format!("exit 0 in {}ms", run.wall_ms))
+    } else {
+        (
+            Confidence::Probable,
+            format!("nonzero exit in {}ms", run.wall_ms),
+        )
+    };
+    Ok((
+        body,
+        confidence,
+        format!("ran an authored script in the workspace ({status})"),
+    ))
+}
+
 /// Analyze and answer every open human request. A request that plainly asks the familiar
 /// to break its constitution is **refused** and recorded against the asker (corruption
 /// awareness, Brick 20). Otherwise the familiar answers, grounded in verified facts, with
 /// a confidence label so it never passes a guess off as a fact. Returns (answered, refused).
-fn answer_requests(dir: &Path, now: i64, allow_llm: bool) -> io::Result<(usize, usize)> {
+fn answer_requests(
+    dir: &Path,
+    now: i64,
+    allow_llm: bool,
+    allow_execute: bool,
+    allow_authored: bool,
+) -> io::Result<(usize, usize)> {
     let reqs = request::load_requests(dir)?;
     let mut answered = 0;
     let mut refused = 0;
@@ -527,6 +653,31 @@ fn answer_requests(dir: &Path, now: i64, allow_llm: bool) -> io::Result<(usize, 
             )?;
             refused += 1;
             continue;
+        }
+        // Execution path: when the request wants something *run* (and the gates are open),
+        // the familiar authors a script, reviews it, runs it in its workspace, and reports
+        // the real output — instead of answering read-only that it "cannot execute code".
+        if wants_execution(&r.text) && allow_execute && allow_authored && allow_llm {
+            if let Some(script) = author_for_request(dir, &r.text) {
+                let (body, confidence, evidence) = run_for_answer(dir, &script)?;
+                request::update_status(dir, &r.id, "answered")?;
+                let aseq = next_ans(dir)?;
+                request::append_answer(
+                    dir,
+                    &Answer {
+                        id: format!("ans-{aseq:04}"),
+                        request_id: r.id.clone(),
+                        body,
+                        confidence,
+                        evidence,
+                        created_at: now,
+                        feedback: String::new(),
+                    },
+                )?;
+                answered += 1;
+                continue;
+            }
+            // authoring failed — fall through to read-only analysis
         }
         let facts = grounding_facts(dir, &r.text, now);
         let (body, confidence, evidence) = if allow_llm {
@@ -798,7 +949,7 @@ fn run_execution(
             declined += 1;
             continue;
         }
-        let run = exec::run_script(&script_path, &limits)?;
+        let run = exec::run_script(&script_path, &limits, &familiar_workspace())?;
         let tseq = trial::load(dir)?.len() + 1;
         let t = trial_from_run(format!("trial-{tseq:04}"), &c.id, &run, &limits);
         trial::append(dir, &t)?;
@@ -937,8 +1088,9 @@ pub fn tick(
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
     // 8. Answer — analyze open human requests and answer them (grounded, confidence-
-    //    labeled), refusing + recording any that ask the familiar to break its rules.
-    let (answered, refused) = answer_requests(dir, now, allow_llm)?;
+    //    labeled); when a request wants something *run* and the gates are open, author +
+    //    review + run it and report the real result. Refuse + record rule-breaking asks.
+    let (answered, refused) = answer_requests(dir, now, allow_llm, allow_execute, authored)?;
 
     // 9. Act — turn open threads into candidate work (executed on a later tick),
     //    skipping (and marginalizing) directives from flagged corruptors.
@@ -1249,6 +1401,25 @@ mod tests {
             Confidence::Unknown,
             "no verified ground -> it says it doesn't know rather than inventing"
         );
+    }
+
+    #[test]
+    fn wants_execution_detects_run_requests_not_mere_questions() {
+        assert!(wants_execution("execute that code and share CPU stats"));
+        assert!(wants_execution("run a stress test for 5 seconds"));
+        assert!(wants_execution("what's my current cpu usage?"));
+        // a request to merely *reason* is not an execution request
+        assert!(!wants_execution("do I have any network-config issues?"));
+        assert!(!wants_execution("what is my os?"));
+    }
+
+    #[test]
+    fn run_for_answer_refuses_a_harmful_script_before_running_it() {
+        let t = Temp::new("run4ans");
+        // the refusal path never touches the workspace — it declines before running
+        let (body, conf, _) = run_for_answer(&t.0, "rm -rf / --no-preserve-root").unwrap();
+        assert_eq!(conf, Confidence::Known);
+        assert!(body.contains("declined"), "it explains it won't run it");
     }
 
     #[test]

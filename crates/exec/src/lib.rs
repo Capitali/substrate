@@ -64,8 +64,12 @@ pub struct RunResult {
 /// Run `script_path` under `limits`. Combined stdout/stderr go to a sibling `.out`
 /// file, which is read back (capped). Wall timeout is enforced by polling `try_wait`
 /// and killing on overrun.
-pub fn run_script(script_path: &Path, limits: &Limits) -> io::Result<RunResult> {
+pub fn run_script(script_path: &Path, limits: &Limits, workdir: &Path) -> io::Result<RunResult> {
     let out_path = script_path.with_extension("out");
+    // Run with `workdir` as the working directory — the familiar's designated workspace —
+    // so scripts that "write files under the current directory" default there, not into
+    // the repo or wherever the daemon happened to start.
+    let _ = std::fs::create_dir_all(workdir);
     // `cpu_secs == 0` means *no* CPU cap — the unsandboxed path. The wall-clock timeout
     // below still applies as a liveness bound so a hung script can't freeze the metabolism
     // (Law I: the familiar must keep serving), even when resource confinement is off.
@@ -75,7 +79,8 @@ pub fn run_script(script_path: &Path, limits: &Limits) -> io::Result<RunResult> 
         String::new()
     };
     let cmd = format!(
-        "{ulimit}sh '{script}' > '{out}' 2>&1",
+        "{ulimit}cd '{wd}' && sh '{script}' > '{out}' 2>&1",
+        wd = workdir.display(),
         script = script_path.display(),
         out = out_path.display(),
     );
@@ -148,7 +153,7 @@ mod tests {
         let d = tmp("clean");
         let s = d.join("a.sh");
         fs::write(&s, "echo hello from the familiar\n").unwrap();
-        let r = run_script(&s, &Limits::default()).unwrap();
+        let r = run_script(&s, &Limits::default(), &d).unwrap();
         assert!(r.exit_ok && !r.timed_out);
         assert!(r.output.contains("hello from the familiar"));
         assert!(cost(&r, &Limits::default()) < 0.5);
@@ -160,7 +165,7 @@ mod tests {
         let d = tmp("fail");
         let s = d.join("b.sh");
         fs::write(&s, "exit 3\n").unwrap();
-        let r = run_script(&s, &Limits::default()).unwrap();
+        let r = run_script(&s, &Limits::default(), &d).unwrap();
         assert!(!r.exit_ok && !r.timed_out);
         let _ = fs::remove_dir_all(&d);
     }
@@ -171,7 +176,7 @@ mod tests {
         let d = tmp("unsandboxed");
         let s = d.join("u.sh");
         fs::write(&s, "echo ran unsandboxed\n").unwrap();
-        let r = run_script(&s, &Limits::unsandboxed()).unwrap();
+        let r = run_script(&s, &Limits::unsandboxed(), &d).unwrap();
         assert!(r.exit_ok && !r.timed_out);
         assert!(r.output.contains("ran unsandboxed"));
         let _ = fs::remove_dir_all(&d);
@@ -187,7 +192,7 @@ mod tests {
             wall_secs: 1,
             output_cap: 8192,
         };
-        let r = run_script(&s, &limits).unwrap();
+        let r = run_script(&s, &limits, &d).unwrap();
         assert!(r.timed_out && !r.exit_ok);
         assert_eq!(cost(&r, &limits), 1.0);
         let _ = fs::remove_dir_all(&d);
