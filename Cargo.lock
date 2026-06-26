@@ -1154,6 +1154,7 @@ dependencies = [
  "familiar-kernel",
  "familiar-llm",
  "familiar-sense",
+ "familiar-vision",
  "serde_json",
 ]
 
@@ -1196,6 +1197,13 @@ dependencies = [
 
 [[package]]
 name = "familiar-sense"
+version = "0.1.0"
+dependencies = [
+ "familiar-kernel",
+]
+
+[[package]]
+name = "familiar-vision"
 version = "0.1.0"
 dependencies = [
  "familiar-kernel",

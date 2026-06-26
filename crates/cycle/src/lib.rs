@@ -46,6 +46,7 @@ use familiar_kernel::thread::{self, Thread};
 use familiar_kernel::trial::{self, Trial};
 use familiar_kernel::{mutation, pattern_memory, regression_guard, selection};
 use familiar_sense as sense;
+use familiar_vision as vision;
 
 const ARTIFACTS_DIR: &str = "artifacts";
 const QUESTION_FILE: &str = "question.txt";
@@ -866,6 +867,10 @@ pub fn tick(
     perceived.extend(sense::census(now));
     perceived.extend(sense::interfaces(now));
     perceived.extend(sense::capabilities(now, sense::DEFAULT_TOOLS));
+    // Discover cameras in the environment — perception, always permitted (the boundary
+    // governs reach, not perception). *Watching* one is gated (camera_allowed) and not
+    // done here; the familiar only learns that an eye is available, never opens it itself.
+    perceived.extend(vision::discover(now));
     if allow_connectivity {
         perceived.push(sense::connectivity(now));
     }
@@ -1016,6 +1021,13 @@ pub fn llm_allowed(dir: &Path) -> bool {
 /// Resolve whether the boundary permits executing generated artifacts.
 pub fn execute_allowed(dir: &Path) -> bool {
     boundary_allows(dir, familiar_kernel::guard::ActionKind::ExecuteArtifact)
+}
+
+/// Resolve whether the boundary permits **watching** through a camera (capturing frames).
+/// Discovery is perception and not gated; this gates the act of watching, which later
+/// bricks build on. Fail-closed: the eye stays shut until a human opens it.
+pub fn camera_allowed(dir: &Path) -> bool {
+    boundary_allows(dir, familiar_kernel::guard::ActionKind::Camera)
 }
 
 /// Resolve whether the boundary permits executing *LLM-authored* artifacts.
@@ -1355,10 +1367,12 @@ mod tests {
     #[test]
     fn connectivity_gated_off_by_default_boundary() {
         let t = Temp::new("gate");
-        // no boundary.json -> closed -> connectivity/llm/execute not allowed
+        // no boundary.json -> closed -> connectivity/llm/execute/camera not allowed
         assert!(!connectivity_allowed(&t.0));
         assert!(!llm_allowed(&t.0));
         assert!(!execute_allowed(&t.0));
+        // the eye stays shut until a human opens it (availability is not authorization)
+        assert!(!camera_allowed(&t.0));
     }
 
     #[test]

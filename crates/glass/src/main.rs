@@ -870,6 +870,17 @@ fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {
                         );
                     }
                 }
+                if b.allow_camera {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(150, 200, 255),
+                        egui::RichText::new("👁 camera: the eye may watch (granted)").small(),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new("👁 camera: closed (discovery only, no watching)")
+                            .small(),
+                    );
+                }
             }
         });
     });

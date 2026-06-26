@@ -48,6 +48,9 @@ pub enum ActionKind {
     InstallTool,
     /// Execute a generated artifact (run code the factory produced).
     ExecuteArtifact,
+    /// Watch through a camera (capture frames). The most invasive reach; discovering
+    /// *which* cameras exist is perception and not weighed here — only *watching* is.
+    Camera,
 }
 
 /// The guard's outcome.
@@ -207,6 +210,7 @@ pub fn evaluate(action: &Action, boundary: &Boundary) -> Verdict {
         Llm => bool_scope(boundary.allow_llm),
         InstallTool => bool_scope(boundary.allow_tool_install),
         ExecuteArtifact => bool_scope(boundary.allow_execute),
+        Camera => bool_scope(boundary.allow_camera),
     };
 
     if matches!(scope, Scope::Out) {
@@ -303,6 +307,7 @@ mod tests {
             allow_tool_install: false,
             allow_execute: false,
             allow_authored_execute: false,
+            allow_camera: false,
             sandbox_execution: true,
             fs_read: vec!["/Users/ian/".into()],
             fs_write: vec!["/Users/ian/Development/familiar/familiar_data/".into()],
@@ -317,6 +322,7 @@ mod tests {
             ActionKind::Llm,
             ActionKind::InstallTool,
             ActionKind::ExecuteArtifact,
+            ActionKind::Camera,
             ActionKind::ReadFile,
             ActionKind::WriteFile,
         ] {
@@ -385,6 +391,24 @@ mod tests {
         let mut a = Action::new(ActionKind::Observe, "betty");
         a.affects_person = true;
         assert_eq!(evaluate(&a, &b).decision, Decision::SeekConsent);
+    }
+
+    #[test]
+    fn watching_a_camera_is_refused_until_a_human_opens_it() {
+        // a camera being present is not permission to watch — fail-closed
+        let v = evaluate(
+            &Action::new(ActionKind::Camera, "FaceTime HD Camera"),
+            &open_llm(),
+        );
+        assert_eq!(v.decision, Decision::Refuse);
+        assert_eq!(v.reason, Reason::ViolatesConstitutionalBoundary);
+        // only an explicit human grant opens the eye
+        let mut b = open_llm();
+        b.allow_camera = true;
+        assert_eq!(
+            evaluate(&Action::new(ActionKind::Camera, "FaceTime HD Camera"), &b).decision,
+            Decision::Allow
+        );
     }
 
     #[test]

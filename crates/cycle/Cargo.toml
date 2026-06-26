@@ -8,6 +8,7 @@ description = "The metabolism — one tick of the factory cycle (sense → detec
 [dependencies]
 familiar-kernel.workspace = true
 familiar-sense.workspace = true
+familiar-vision.workspace = true
 familiar-llm.workspace = true
 familiar-exec.workspace = true
 serde_json.workspace = true

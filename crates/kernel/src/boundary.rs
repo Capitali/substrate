@@ -36,6 +36,12 @@ pub struct Boundary {
     /// A further, sharper gate than `allow_execute`: model-authored code with network
     /// reach is an exfiltration surface the in-process runner does not sandbox.
     pub allow_authored_execute: bool,
+    /// May the familiar **watch through a camera** (capture frames)? The most invasive
+    /// reach — an eye on a person, the sharpest Law III / HUMANITY test. *Discovery* of
+    /// which cameras exist is perception (always allowed; the boundary governs reach, not
+    /// perception); *watching* is gated here, fail-closed, and is only ever opened by an
+    /// explicit human grant. Availability is not authorization — made literal for the eye.
+    pub allow_camera: bool,
     /// Run executed artifacts under the resource sandbox (`ulimit`/wall-timeout)?
     /// Default **true** (safe). When the human sets it false, artifacts run without
     /// resource confinement — bound then by the constitution (the pre-execution review
@@ -69,6 +75,7 @@ impl Boundary {
             allow_tool_install: false,
             allow_execute: false,
             allow_authored_execute: false,
+            allow_camera: false,
             sandbox_execution: true,
             fs_read: Vec::new(),
             fs_write: Vec::new(),
@@ -82,6 +89,7 @@ impl Boundary {
             && !self.allow_tool_install
             && !self.allow_execute
             && !self.allow_authored_execute
+            && !self.allow_camera
             && self.fs_read.is_empty()
             && self.fs_write.is_empty()
     }
