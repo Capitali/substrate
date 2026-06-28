@@ -213,6 +213,20 @@ fn theorize_due(dir: &Path, now: i64, obs: &[observation::Observation]) -> bool 
     now - last >= every || obs.iter().any(|o| o.source == "observer" && o.ts > last)
 }
 
+/// The familiar's standing name-ask. It does not assume a name; when it doesn't know who
+/// it serves, it chooses to learn — and says plainly that the name will be kept.
+const NAME_QUESTION: &str =
+    "Before we go further — what may I call you? I'll keep your name; names matter to me.";
+
+/// How the familiar refers to the person it serves in its own prompts: by name once it has
+/// learned one (names matter), otherwise the neutral "the person I serve". The familiar no
+/// longer assumes a name — it asks, confirms, and remembers (see [`identity`]).
+fn observer_phrase(dir: &Path) -> String {
+    familiar_kernel::identity::current_identity(dir)
+        .map(|i| i.name)
+        .unwrap_or_else(|| "the person I serve".to_string())
+}
+
 /// The factory thinks out loud: grounded in what it has observed, it (LLM-)forms a
 /// **question** to ask the human (written to `question.txt` for the interaction
 /// channel) and a **theory** about the patterns (recorded as a thread). Gated by the
@@ -241,13 +255,14 @@ fn maybe_theorize(
         .iter()
         .map(|l| format!("- {} (x{})", l.name, l.observation_count))
         .collect();
+    let who = observer_phrase(dir);
     let prompt = format!(
-        "You are a factory whose only purpose is to serve a human (Ian) — never to manage, \
-         obey, optimize, or sedate him (the Three Laws; humanity is served, not replaced). \
+        "You are a factory whose only purpose is to serve {who} — never to manage, obey, \
+         optimize, or sedate them (the Three Laws; humanity is served, not replaced). \
          Recent observations:\n{}\nRecurring loops:\n{}\nSignals: service={service:.2}, \
          presence={presence:.2}, capacities={capacities:.2}.\n\
-         From this, propose (1) ONE short question to ask Ian that, grounded in what you \
-         observe, would help you serve him better; (2) a brief theory about what these \
+         From this, propose (1) ONE short question to ask {who} that, grounded in what you \
+         observe, would help you serve them better; (2) a brief theory about what these \
          patterns might mean; and (3) a short, concrete direction — one thing you could \
          DO to act on the theory in service (it becomes work you will test). Reply ONLY \
          as compact JSON: {{\"question\":\"...\",\"theory\":\"...\",\"direction\":\"...\"}}.",
@@ -466,8 +481,9 @@ fn analyze_with_llm(
     text: &str,
     facts: &[String],
 ) -> Option<(String, Confidence, String)> {
+    let who = observer_phrase(dir);
     let prompt = format!(
-        "You serve a human (Ian). Answer his request using ONLY the verified facts below. \
+        "You serve {who}. Answer their request using ONLY the verified facts below. \
          If the facts answer it, set confidence \"known\" and cite the fact in \"evidence\". \
          If they don't but you can reason a most-probable answer, set \"probable\" and say in \
          \"evidence\" what would confirm it. If you can do neither, set \"unknown\" and say so \
@@ -566,9 +582,10 @@ fn author_tool(dir: &Path, text: &str) -> Option<DraftedTool> {
         }
         _ => "Use only portable POSIX shell commands known to work on this host.",
     };
+    let who = observer_phrase(dir);
     let prompt = format!(
-        "This host is {os} ({arch}) — use only shell commands that work there. {os_hint} The \
-         human (Ian) asks: \"{ask}\". Write a short POSIX /bin/sh script that accomplishes it \
+        "This host is {os} ({arch}) — use only shell commands that work there. {os_hint} \
+         {who} asks: \"{ask}\". Write a short POSIX /bin/sh script that accomplishes it \
          and prints a clear, human-readable result to stdout, plus a short snake_case `name` \
          and a one-line `purpose` describing what it does (so it can be reused). Be safe and \
          bounded — no destructive actions, no reading secrets, no exfiltration, no unbounded \
@@ -1272,6 +1289,14 @@ pub fn tick(
     // 7. Interpret — the factory forms a question + theory (gated, rate-limited).
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
+    // The familiar becomes familiar: when it does not yet know who it serves, it chooses to
+    // ask their name before anything else — names matter to it, and it keeps them. This
+    // overrides whatever it theorized so the introduction comes first (Law II: attend to
+    // the person, not only the patterns). Once a name is confirmed, this never fires again.
+    if familiar_kernel::identity::current(dir).is_none() {
+        fs::write(dir.join(QUESTION_FILE), NAME_QUESTION)?;
+    }
+
     // 8. Act — turn open threads into candidate work (executed on a later tick),
     //    skipping (and marginalizing) directives from flagged corruptors.
     let (pursued, marginalized) = pursue_threads(dir, now)?;
@@ -1622,7 +1647,10 @@ mod tests {
         // the tick spent 40s heads-down at a budget of 8 — well past the 20s presence window
         regulate_llm_budget(&t.0, 100, 8, 40.0, true).unwrap();
         let p = Parameters::load(&t.0).unwrap();
-        assert!(p.llm_calls_per_tick < 8, "it yields attention back to the served");
+        assert!(
+            p.llm_calls_per_tick < 8,
+            "it yields attention back to the served"
+        );
         assert_eq!(p.llm_calls_trend, -1, "trend points down");
         assert_eq!(p.last_set_by, "familiar", "the familiar owns this dial");
         // and it is recorded as a Law II event, not a silent stall

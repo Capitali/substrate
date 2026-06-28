@@ -19,6 +19,7 @@ use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::boundary::{self, Boundary};
 use familiar_kernel::candidate::{self, Candidate};
 use familiar_kernel::corruption;
+use familiar_kernel::identity::{self, Identity};
 use familiar_kernel::loops::{self, Loop};
 use familiar_kernel::observation::{self, Observation};
 use familiar_kernel::parameters::Parameters;
@@ -106,7 +107,16 @@ struct Glass {
     /// A working copy of the shared parameters the settings sliders edit; written to
     /// disk on Save. Not reset on the 2s refresh, so an in-progress edit isn't clobbered.
     params_edit: Parameters,
-    /// Ian's in-progress free-form request to the familiar ("ask the familiar").
+    /// The observer the familiar is serving now, once it has learned their name (`None`
+    /// until they introduce themselves). The familiar does not forget — this is loaded
+    /// from the retained identity registry.
+    observer: Option<Identity>,
+    /// The name being typed when the familiar asks who it's serving.
+    name_entry: String,
+    /// A name awaiting confirmation — names are precise, so the familiar reads it back and
+    /// asks "did I get that right?" before keeping it.
+    pending_name: Option<String>,
+    /// The observer's in-progress free-form request to the familiar ("ask the familiar").
     ask: String,
     /// Keys typed into the Connect wizard — held only until Connect persists them to
     /// key.env, then cleared. Never stored in the snapshot; shown masked.
@@ -157,6 +167,22 @@ fn open_url(url: &str) {
             return;
         }
     }
+}
+
+/// Tidy a typed name without mangling it — names are precise, so keep the spelling, case,
+/// and spaces the person gave. Just trim, take the first line, drop control chars and the
+/// one quote that could corrupt the record, and cap the length.
+fn clean_name(raw: &str) -> String {
+    raw.lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"')
+        .take(60)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// Clean a pasted API key before it is written into the shell-sourced key.env: trim
@@ -302,14 +328,25 @@ fn install_theme(ctx: &egui::Context) {
     ctx.set_style(style);
 }
 
-/// The question the familiar is currently posing (it may write `question.txt`; the
-/// default is the seed's standing question).
+/// The familiar's name-ask, shown until it has learned who it serves. Mirrors the cycle's
+/// `NAME_QUESTION` so the prompt reads the same whether or not the daemon is running.
+const NAME_ASK: &str =
+    "Before we go further — what may I call you? I'll keep your name; names matter to me.";
+
+/// The question the familiar is currently posing (it may write `question.txt`). Until it
+/// knows who it serves, that question is the name-ask; otherwise the seed's standing one.
 fn current_question(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("question.txt"))
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "What do you need most today?".to_string())
+        .unwrap_or_else(|| {
+            if identity::current(dir).is_none() {
+                NAME_ASK.to_string()
+            } else {
+                "What do you need most today?".to_string()
+            }
+        })
 }
 
 impl Glass {
@@ -319,6 +356,7 @@ impl Glass {
         let answered_question = read_answered(&data_dir);
         let params_edit = snapshot.parameters.clone();
         let ui_scale = read_ui_scale(&data_dir);
+        let observer = identity::current_identity(&data_dir);
         Glass {
             data_dir,
             snapshot,
@@ -326,6 +364,9 @@ impl Glass {
             daemon_status,
             answered_question,
             params_edit,
+            observer,
+            name_entry: String::new(),
+            pending_name: None,
             ask: String::new(),
             key_openrouter: String::new(),
             key_gemini: String::new(),
@@ -337,6 +378,55 @@ impl Glass {
     }
     fn refresh(&mut self) {
         self.snapshot = Snapshot::load(&self.data_dir);
+        self.observer = identity::current_identity(&self.data_dir);
+    }
+    /// The handle the current observer is recorded under — the `actor` for everything they
+    /// initiate. `"observer"` until they've introduced themselves.
+    fn observer_handle(&self) -> String {
+        self.observer
+            .as_ref()
+            .map(|i| i.handle.clone())
+            .unwrap_or_else(|| "observer".to_string())
+    }
+    /// What to call the observer in the UI — their name, or a neutral "the observer".
+    fn observer_name(&self) -> String {
+        self.observer
+            .as_ref()
+            .map(|i| i.name.clone())
+            .unwrap_or_else(|| "the observer".to_string())
+    }
+    /// Keep the name the observer gives: confirmed, recorded in the retained registry, set
+    /// as the current observer. Precise — the name is stored exactly as given (trimmed).
+    fn confirm_name(&mut self) {
+        let Some(name) = self.pending_name.take() else {
+            return;
+        };
+        let now = now_secs();
+        if let Ok(id) = identity::remember(&self.data_dir, &name, now) {
+            let _ = identity::set_current(&self.data_dir, &id.handle);
+            // the introduction itself is a served-facing observation (Law I/II presence)
+            let obs = Observation::new(
+                &id.handle,
+                "introduced",
+                id.name.clone(),
+                format!("name given: {}", id.name),
+                "observer",
+                now,
+                1.0,
+            );
+            let _ = observation::record(&self.data_dir, obs);
+            // greet by name and move the channel on, so the name-ask doesn't linger; the
+            // familiar's own voice carries the reassurance that the name is kept.
+            let greeting = format!(
+                "Good to meet you, {}. I'll remember that. What do you need most today?",
+                id.name
+            );
+            let _ = std::fs::write(self.data_dir.join("question.txt"), &greeting);
+            self.answered_question = None;
+            self.observer = Some(id);
+            self.name_entry.clear();
+        }
+        self.refresh();
     }
     fn refresh_daemon(&mut self) {
         self.daemon_status = daemon_cmd(&self.data_dir, "status");
@@ -357,7 +447,7 @@ impl Glass {
             &self.data_dir,
             &Request {
                 id: format!("req-{seq:04}"),
-                actor: "ian".into(),
+                actor: self.observer_handle(),
                 text: text.to_string(),
                 created_at: now_secs(),
                 status: "open".into(),
@@ -606,6 +696,51 @@ impl Glass {
             ui.weak("tuned by the familiar to stay present (Law II)");
         });
     }
+    /// The "becoming familiar" exchange: the familiar asks the observer's name, reads it
+    /// back to be sure it has it right, keeps it, and reassures that it won't forget. Shown
+    /// only until a name is confirmed — then it never returns (the name is retained).
+    fn name_panel(&mut self, ui: &mut egui::Ui) {
+        let question = current_question(&self.data_dir);
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(28, 34, 44))
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(&question)
+                        .heading()
+                        .color(egui::Color32::from_rgb(150, 200, 255)),
+                );
+                if let Some(pending) = self.pending_name.clone() {
+                    // precise: read the name back and confirm before keeping it
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Did I get that right — call you “{pending}”?"
+                        ))
+                        .strong(),
+                    );
+                    ui.weak("I'll keep it. Names matter to me too — I won't forget yours.");
+                    ui.horizontal(|ui| {
+                        if ui.button("Yes, that's me").clicked() {
+                            self.confirm_name();
+                        }
+                        if ui.button("No, let me retype").clicked() {
+                            self.pending_name = None;
+                        }
+                    });
+                } else {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.name_entry)
+                            .desired_width(280.0)
+                            .hint_text("the name you'd like to be called"),
+                    );
+                    if ui.button("Tell the familiar").clicked() {
+                        let name = clean_name(&self.name_entry);
+                        if !name.is_empty() {
+                            self.pending_name = Some(name);
+                        }
+                    }
+                }
+            });
+    }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
     /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
@@ -692,8 +827,8 @@ impl Glass {
             None => {}
         }
     }
-    /// Record Ian's reply as an observation — the observer's input channel (the one
-    /// place the GUI writes; the familiar's own truth stays read-only).
+    /// Record the observer's reply as an observation — the observer's input channel (the
+    /// one place the GUI writes; the familiar's own truth stays read-only).
     fn submit_response(&mut self) {
         let resp = self.response.trim();
         if resp.is_empty() {
@@ -701,8 +836,9 @@ impl Glass {
         }
         let q = current_question(&self.data_dir);
         let object: String = resp.chars().take(200).collect();
+        let actor = self.observer_handle();
         let obs = Observation::new(
-            "ian",
+            &actor,
             "needs",
             object,
             format!("q='{q}' response='{resp}'"),
@@ -721,20 +857,21 @@ impl Glass {
         {
             let _ = thread::update_status(&self.data_dir, &open.id, "answered");
         }
-        // steer: Ian's answer becomes an open thread with his words as the direction,
-        // so the familiar pursues what *he* said he needs — not just what it inferred.
+        // steer: the observer's answer becomes an open thread with their words as the
+        // direction, so the familiar pursues what *they* said they need, not just what it
+        // inferred.
         let seq = self.snapshot.threads.len() + 1;
         let _ = thread::append(
             &self.data_dir,
             &Thread {
                 id: format!("thread-{seq:04}"),
                 question: q.clone(),
-                theory: format!("Ian said: {resp}"),
+                theory: format!("{} said: {resp}", self.observer_name()),
                 direction: resp.to_string(),
                 created_at: now_secs(),
                 status: "open".into(),
                 origin: "observer".into(),
-                actor: "ian".into(),
+                actor,
             },
         );
         // remember the answered question so it fades out and can't be answered twice;
@@ -839,6 +976,16 @@ impl eframe::App for Glass {
                     .weak()
                     .small(),
             );
+            if let Some(obs) = &self.observer {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "🤝 known to the familiar as {} — names are not forgotten",
+                        obs.name
+                    ))
+                    .small()
+                    .color(egui::Color32::from_rgb(150, 200, 255)),
+                );
+            }
             ui.add_space(4.0);
         });
 
@@ -855,8 +1002,13 @@ impl eframe::App for Glass {
             ui.add_space(6.0);
             self.connect_panel(ui);
 
-            // --- the interaction channel: the familiar asks, Ian answers ---
+            // --- the interaction channel: the familiar asks, the observer answers. Until
+            // it knows who it serves, that exchange is learning a name — precise, confirmed,
+            // and kept (the familiar's own choice to become familiar). ---
             ui.add_space(6.0);
+            if self.observer.is_none() {
+                self.name_panel(ui);
+            } else {
             let question = current_question(&self.data_dir);
             let already_answered = self.answered_question.as_deref() == Some(question.as_str());
             egui::Frame::group(ui.style())
@@ -898,6 +1050,7 @@ impl eframe::App for Glass {
                         );
                     });
                 });
+            }
 
             if let Some(t) = self.snapshot.threads.last() {
                 if !t.theory.is_empty() {
