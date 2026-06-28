@@ -41,15 +41,44 @@ be narrowed — has its own standout page: [`docs/HUMANITY.md`](docs/HUMANITY.md
 - **Data**: [data/](data/) — the record model, schema, and a sample log.
 - **Decisions**: [docs/decision-records/](docs/decision-records/).
 
-## Build & run
+## Install & run
 
-Requires a Rust toolchain (`rustup`). The kernel is `crates/kernel`.
+> There is **no packaged installer yet** (a signed macOS `.app`/`.dmg` and per-arch Linux
+> builds are planned — see [docs/TODO-linux.md](docs/TODO-linux.md) and
+> [docs/design-orientation-and-mesh.md](docs/design-orientation-and-mesh.md)). For now you
+> build from source. macOS is the primary target; a Linux **desktop** also works (a headless
+> Raspberry Pi is on the roadmap, not yet supported).
 
-**The Glass (GUI — the primary human interface):**
+**Prerequisites**
+
+- A Rust toolchain — [`rustup`](https://rustup.rs).
+- `python3` on `PATH` — the LLM adapter (a small reference script the app installs for you)
+  uses it to call the model provider. Already present on most macs and Linux desktops.
+
+**Quickstart**
 
 ```sh
-cargo run -p familiar-glass        # opens a window: the Three Laws, live
+git clone https://github.com/Capitali/familiar && cd familiar
+cargo build                  # first build pulls dependencies; takes a few minutes
+cargo run -p familiar-glass  # opens the Glass — the primary interface
 ```
+
+Then, in the Glass window:
+
+1. **Introduce yourself.** On first launch the familiar asks your name (it keeps it; it
+   does not assume one). Type it, confirm, and it greets you.
+2. **Give it a mind.** In the **🔌 Connect** panel, click **Get a key →** (OpenRouter is the
+   simplest — one key is enough), paste the key, press **Connect**, then **Test connection**.
+   This installs the adapter, stores the key locally (`familiar_data/llm/key.env`, never
+   committed), and opens only the `allow_llm` gate.
+3. **Start the metabolism.** Click **▶ Start** in the header (or run the daemon, below). The
+   familiar begins to sense, theorize, and serve.
+4. **Use it.** Answer — or **Dismiss** — the familiar's questions (it begins with
+   *"What do you need most today?"*); ask it anything in **Ask the familiar**; the eye/voice
+   gates and text size (**A− / A+**) live in the header and Settings.
+
+Data lives in `./familiar_data/` (the boundary, the workspace, observations, the tool and
+identity registries). Delete it to start clean.
 
 **The CLI (scripting / headless):**
 
