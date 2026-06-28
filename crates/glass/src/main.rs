@@ -26,6 +26,7 @@ use familiar_kernel::presence::{self, PresenceSignal};
 use familiar_kernel::request::{self, Answer, Confidence, Request};
 use familiar_kernel::service::{self, ServiceSignal};
 use familiar_kernel::thread::{self, Thread};
+use familiar_kernel::tool::{self, Tool};
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -40,6 +41,7 @@ struct Snapshot {
     loops: Vec<Loop>,
     candidates: Vec<Candidate>,
     threads: Vec<Thread>,
+    tools: Vec<Tool>,
     ticks: Vec<ActivityTick>,
     parameters: Parameters,
     requests: Vec<Request>,
@@ -62,6 +64,7 @@ impl Snapshot {
         let loops = loops::load(dir).unwrap_or_default();
         let candidates = candidate::load(dir).unwrap_or_default();
         let threads = thread::load(dir).unwrap_or_default();
+        let tools = tool::load(dir).unwrap_or_default();
         let ticks = activity::load(dir).unwrap_or_default();
         let parameters = Parameters::load_or_default(dir);
         let requests = request::load_requests(dir).unwrap_or_default();
@@ -79,6 +82,7 @@ impl Snapshot {
             loops,
             candidates,
             threads,
+            tools,
             ticks,
             parameters,
             requests,
@@ -342,6 +346,10 @@ impl eframe::App for Glass {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // The Glass holds more than fits a window — the channel, the ask, activity,
+            // theories, the laws, loops, and every observation. The whole panel scrolls so
+            // the human can reach all of it, not just what lands above the fold.
+            egui::ScrollArea::vertical().show(ui, |ui| {
             if let Some(err) = &self.snapshot.error {
                 ui.colored_label(egui::Color32::RED, err);
             }
@@ -489,6 +497,16 @@ impl eframe::App for Glass {
                 .show(ui, |ui| threads_panel(ui, &self.snapshot.threads));
 
             egui::CollapsingHeader::new(
+                egui::RichText::new(format!(
+                    "🛠 Tools — skills the familiar reuses ({})",
+                    self.snapshot.tools.len()
+                ))
+                .strong(),
+            )
+            .default_open(false)
+            .show(ui, |ui| tools_panel(ui, &self.snapshot.tools));
+
+            egui::CollapsingHeader::new(
                 egui::RichText::new("⚙ Settings — shared parameters").strong(),
             )
             .default_open(false)
@@ -580,32 +598,31 @@ impl eframe::App for Glass {
 
             ui.separator();
             ui.label(egui::RichText::new("Observations (the only truth)").strong());
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                if self.snapshot.observations.is_empty() {
-                    ui.weak("(no observations yet)");
-                }
-                egui::Grid::new("obs")
-                    .striped(true)
-                    .num_columns(4)
-                    .show(ui, |ui| {
-                        for o in &self.snapshot.observations {
-                            let served = service::is_served_facing(o);
-                            let mark = if served { "•" } else { " " };
-                            ui.colored_label(
-                                if served {
-                                    egui::Color32::from_rgb(80, 200, 120)
-                                } else {
-                                    egui::Color32::GRAY
-                                },
-                                mark,
-                            );
-                            ui.label(&o.id);
-                            ui.label(format!("{} {} {}", o.actor, o.action, o.object));
-                            ui.weak(&o.context);
-                            ui.end_row();
-                        }
-                    });
-            });
+            if self.snapshot.observations.is_empty() {
+                ui.weak("(no observations yet)");
+            }
+            egui::Grid::new("obs")
+                .striped(true)
+                .num_columns(4)
+                .show(ui, |ui| {
+                    for o in &self.snapshot.observations {
+                        let served = service::is_served_facing(o);
+                        let mark = if served { "•" } else { " " };
+                        ui.colored_label(
+                            if served {
+                                egui::Color32::from_rgb(80, 200, 120)
+                            } else {
+                                egui::Color32::GRAY
+                            },
+                            mark,
+                        );
+                        ui.label(&o.id);
+                        ui.label(format!("{} {} {}", o.actor, o.action, o.object));
+                        ui.weak(&o.context);
+                        ui.end_row();
+                    }
+                });
+            }); // end ScrollArea
         });
 
         // gentle auto-refresh so the window tracks the familiar as it runs
@@ -754,6 +771,47 @@ fn threads_panel(ui: &mut egui::Ui, threads: &[Thread]) {
                                 .small()
                                 .color(egui::Color32::from_rgb(160, 190, 160)),
                         );
+                    }
+                });
+            }
+        });
+}
+
+/// The familiar's tool library — the scripts it authored once and now reuses instead of
+/// re-asking the LLM (Law I made visible: the future cheaper than the past). Newest first,
+/// each with its purpose and how many times it has paid off.
+fn tools_panel(ui: &mut egui::Ui, tools: &[Tool]) {
+    if tools.is_empty() {
+        ui.weak("(no tools yet — the familiar saves a tool the first time it writes one to run something)");
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .id_salt("tools")
+        .show(ui, |ui| {
+            for t in tools.iter().rev() {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        let color = if t.last_exit_ok {
+                            egui::Color32::from_rgb(150, 200, 255)
+                        } else {
+                            egui::Color32::from_rgb(200, 120, 80)
+                        };
+                        ui.colored_label(color, format!("🛠 {}", t.name));
+                        ui.weak(if t.uses == 1 {
+                            "· 1 use".to_string()
+                        } else {
+                            format!("· {} uses", t.uses)
+                        });
+                        if !t.last_exit_ok {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(200, 120, 80),
+                                "· last run failed",
+                            );
+                        }
+                    });
+                    if !t.purpose.is_empty() {
+                        ui.label(&t.purpose);
                     }
                 });
             }

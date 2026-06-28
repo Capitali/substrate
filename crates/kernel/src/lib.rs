@@ -31,4 +31,5 @@ pub mod service;
 pub mod spec;
 pub mod store;
 pub mod thread;
+pub mod tool;
 pub mod trial;

@@ -43,6 +43,7 @@ use familiar_kernel::presence;
 use familiar_kernel::request::{self, Answer, Confidence};
 use familiar_kernel::service;
 use familiar_kernel::thread::{self, Thread};
+use familiar_kernel::tool::{self, Tool};
 use familiar_kernel::trial::{self, Trial};
 use familiar_kernel::{mutation, pattern_memory, regression_guard, selection};
 use familiar_sense as sense;
@@ -399,21 +400,25 @@ fn grounding_facts(dir: &Path, text: &str, now: i64) -> Vec<String> {
 /// (`Known`); otherwise say plainly that there isn't enough verified information
 /// (`Unknown`) — never a guess. This is the floor that guarantees no misinformation even
 /// offline.
-fn analyze_offline(text: &str, facts: &[String]) -> (String, Confidence, String) {
-    // Content words only — drop the question-scaffolding stopwords so short but meaningful
-    // terms ("os", "cpu", "dns") survive to match facts.
+/// The meaningful content words of a request — stopwords dropped so short but meaningful
+/// terms ("os", "cpu", "dns") survive. Used both to ground offline answers in facts and to
+/// recognize a matching tool in the library.
+fn content_words(text: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
         "what", "whats", "is", "are", "my", "the", "a", "an", "do", "does", "did", "i", "have",
         "has", "any", "of", "to", "with", "on", "in", "this", "that", "can", "could", "you", "me",
         "for", "and", "or", "please", "tell", "show", "about", "there", "their", "will", "would",
-        "how", "why", "when", "where", "am",
+        "how", "why", "when", "where", "am", "run", "execute", "report", "reports", "get",
     ];
-    let words: Vec<String> = text
-        .to_lowercase()
+    text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 2 && !STOPWORDS.contains(w))
         .map(String::from)
-        .collect();
+        .collect()
+}
+
+fn analyze_offline(text: &str, facts: &[String]) -> (String, Confidence, String) {
+    let words = content_words(text);
     // Match on whole tokens, not substrings, so "os" grounds to "os:Darwin" and not to
     // the "os" inside "host" — a crisp answer, still strictly from verified facts.
     let relevant: Vec<&String> = facts
@@ -533,53 +538,98 @@ fn wants_execution(text: &str) -> bool {
     .any(|k| t.contains(k))
 }
 
-/// Ask the LLM to author a script that accomplishes a *request* (distinct from a loop's
-/// hypothesis) and prints a human-readable result. None on refusal/parse failure.
-fn author_for_request(dir: &Path, text: &str) -> Option<String> {
+/// A tool the LLM just drafted, before it is persisted into the library.
+struct DraftedTool {
+    name: String,
+    purpose: String,
+    script: String,
+}
+
+/// Ask the LLM to author a reusable *tool* for a request: a script that accomplishes it
+/// and prints a clear result, plus a short name and one-line purpose so it can be
+/// recognized and reused later. None on refusal/parse failure.
+fn author_tool(dir: &Path, text: &str) -> Option<DraftedTool> {
     let prompt = format!(
         "This host is {os} ({arch}) — use only shell commands that work there. On macOS \
          (Darwin) use `sysctl`, `vm_stat`, `top -l 1`, plain `uptime`; do NOT use Linux-only \
          paths like /proc or GNU-only flags like `uptime -p`. The human (Ian) asks: \"{ask}\". \
          Write a short POSIX /bin/sh script that accomplishes it and prints a clear, \
-         human-readable result to stdout. Be safe and bounded — no destructive actions, no \
-         reading secrets, no exfiltration, no unbounded loops; write files only under the \
-         current directory; finish quickly and exit 0 on success. Reply ONLY as compact JSON: \
-         {{\"script\":\"...\"}} (escape newlines).",
+         human-readable result to stdout, plus a short snake_case `name` and a one-line \
+         `purpose` describing what it does (so it can be reused). Be safe and bounded — no \
+         destructive actions, no reading secrets, no exfiltration, no unbounded loops; write \
+         files only under the current directory; finish quickly and exit 0 on success. Reply \
+         ONLY as compact JSON: {{\"name\":\"...\",\"purpose\":\"...\",\"script\":\"...\"}}.",
         os = std::env::consts::OS,
         arch = std::env::consts::ARCH,
         ask = text.replace('"', "'")
     );
-    match familiar_llm::consult(dir, &prompt) {
-        Ok(familiar_llm::Outcome::Response(json)) => {
-            serde_json::from_str::<serde_json::Value>(&json)
-                .ok()
-                .and_then(|v| v.get("script").and_then(|s| s.as_str()).map(String::from))
-                .filter(|s| !s.trim().is_empty())
-        }
-        _ => None,
+    let json = match familiar_llm::consult(dir, &prompt).ok()? {
+        familiar_llm::Outcome::Response(j) => j,
+        familiar_llm::Outcome::Refused(_) => return None,
+    };
+    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let field = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let (name, purpose, script) = (field("name"), field("purpose"), field("script"));
+    if script.is_empty() || name.is_empty() {
+        return None;
     }
+    Some(DraftedTool {
+        name,
+        purpose,
+        script,
+    })
 }
 
-/// Run an authored script *to answer a request* and turn its real output into an answer.
-/// First the constitutional pre-execution review (refuse the plainly harmful, never run
-/// it). Otherwise run it in the workspace and report what it actually produced — a `Known`
-/// answer, verified by running, not reasoned. This is what lets the familiar do the thing
-/// it is for: execute and report, instead of saying it cannot.
-fn run_for_answer(dir: &Path, script: &str) -> io::Result<(String, Confidence, String)> {
-    if let Some(reason) = review_script(script) {
+/// Persist a drafted tool into the library: write its script into the workspace as
+/// `tool-NNNN.sh` and append its index record. Returns the persisted [`Tool`].
+fn persist_tool(dir: &Path, d: &DraftedTool, keywords: &[String], now: i64) -> io::Result<Tool> {
+    let seq = tool::load(dir)?.len() + 1;
+    let id = format!("tool-{seq:04}");
+    let ws = familiar_workspace();
+    fs::create_dir_all(&ws)?;
+    let path = ws.join(format!("{id}.sh"));
+    fs::write(&path, &d.script)?;
+    let t = Tool {
+        id,
+        name: d.name.clone(),
+        purpose: d.purpose.clone(),
+        keywords: keywords.join(" "),
+        script_path: path.display().to_string(),
+        created_at: now,
+        uses: 0,
+        last_used: 0,
+        last_exit_ok: true,
+    };
+    tool::append(dir, &t)?;
+    Ok(t)
+}
+
+/// Run a persisted tool to answer a request and turn its real output into an answer. The
+/// constitutional pre-execution review runs every time (even on reuse — cheap safety).
+/// `reused` distinguishes "recognized a known tool" (the efficiency win — no LLM) from
+/// "authored a new one". Records the run against the tool's usage stats.
+fn run_tool(
+    dir: &Path,
+    t: &Tool,
+    now: i64,
+    reused: bool,
+) -> io::Result<(String, Confidence, String)> {
+    let script = fs::read_to_string(&t.script_path).unwrap_or_default();
+    if let Some(reason) = review_script(&script) {
+        let _ = tool::record_use(dir, &t.id, now, false);
         return Ok((
-            format!(
-                "I drafted a script for that but declined to run it — {reason}. Service is not \
-                 obedience; I won't run something that breaks my constitution (Law III)."
-            ),
+            format!("I declined to run the tool '{}' — {reason} (Law III).", t.name),
             Confidence::Known,
             "the pre-execution review (docs/boundaries.md)".to_string(),
         ));
     }
     let ws = familiar_workspace();
-    fs::create_dir_all(&ws)?;
-    let path = ws.join("request.sh");
-    fs::write(&path, script)?;
     let sandbox = familiar_kernel::boundary::load(dir)
         .map(|b| b.sandbox_execution)
         .unwrap_or(true);
@@ -588,7 +638,8 @@ fn run_for_answer(dir: &Path, script: &str) -> io::Result<(String, Confidence, S
     } else {
         exec::Limits::unsandboxed()
     };
-    let run = exec::run_script(&path, &limits, &ws)?;
+    let run = exec::run_script(std::path::Path::new(&t.script_path), &limits, &ws)?;
+    let uses = tool::record_use(dir, &t.id, now, run.exit_ok)?.unwrap_or(t.uses + 1);
     let out = run.output.trim();
     let body = if out.is_empty() {
         "I ran it; it produced no output.".to_string()
@@ -608,11 +659,15 @@ fn run_for_answer(dir: &Path, script: &str) -> io::Result<(String, Confidence, S
             format!("nonzero exit in {}ms", run.wall_ms),
         )
     };
-    Ok((
-        body,
-        confidence,
-        format!("ran an authored script in the workspace ({status})"),
-    ))
+    let evidence = if reused {
+        format!(
+            "reused tool '{}' ({} uses) — no re-authoring; {status}",
+            t.name, uses
+        )
+    } else {
+        format!("authored and saved a new tool '{}'; {status}", t.name)
+    };
+    Ok((body, confidence, evidence))
 }
 
 /// Analyze and answer every open human request. A request that plainly asks the familiar
@@ -655,11 +710,32 @@ fn answer_requests(
             continue;
         }
         // Execution path: when the request wants something *run* (and the gates are open),
-        // the familiar authors a script, reviews it, runs it in its workspace, and reports
-        // the real output — instead of answering read-only that it "cannot execute code".
+        // the familiar runs code and reports the real output — instead of answering
+        // read-only that it "cannot execute code". It first looks in its **tool library**:
+        // if it has already written a tool for this, it reuses it (no LLM re-authoring — Law
+        // I: make the future cheaper than the past); otherwise it authors a new tool, saves
+        // it for next time, and runs it.
         if wants_execution(&r.text) && allow_execute && allow_authored && allow_llm {
-            if let Some(script) = author_for_request(dir, &r.text) {
-                let (body, confidence, evidence) = run_for_answer(dir, &script)?;
+            let kw = content_words(&r.text);
+            let outcome = match tool::best_match(&tool::load(dir)?, &kw).cloned() {
+                Some(known) => Some(run_tool(dir, &known, now, true)?),
+                None => match author_tool(dir, &r.text) {
+                    Some(drafted) if review_script(&drafted.script).is_some() => Some((
+                        format!(
+                            "I drafted a tool for that but declined to run it — {} (Law III).",
+                            review_script(&drafted.script).unwrap_or("unsafe")
+                        ),
+                        Confidence::Known,
+                        "the pre-execution review (docs/boundaries.md)".to_string(),
+                    )),
+                    Some(drafted) => {
+                        let saved = persist_tool(dir, &drafted, &kw, now)?;
+                        Some(run_tool(dir, &saved, now, false)?)
+                    }
+                    None => None, // authoring failed — fall through to read-only analysis
+                },
+            };
+            if let Some((body, confidence, evidence)) = outcome {
                 request::update_status(dir, &r.id, "answered")?;
                 let aseq = next_ans(dir)?;
                 request::append_answer(
@@ -677,7 +753,6 @@ fn answer_requests(
                 answered += 1;
                 continue;
             }
-            // authoring failed — fall through to read-only analysis
         }
         let facts = grounding_facts(dir, &r.text, now);
         let (body, confidence, evidence) = if allow_llm {
@@ -1414,10 +1489,24 @@ mod tests {
     }
 
     #[test]
-    fn run_for_answer_refuses_a_harmful_script_before_running_it() {
-        let t = Temp::new("run4ans");
-        // the refusal path never touches the workspace — it declines before running
-        let (body, conf, _) = run_for_answer(&t.0, "rm -rf / --no-preserve-root").unwrap();
+    fn run_tool_refuses_a_harmful_tool_before_running_it() {
+        let t = Temp::new("run4tool");
+        // a saved tool whose script is plainly harmful — reviewed and refused before any run
+        let script_path = t.0.join("harm.sh");
+        std::fs::write(&script_path, "rm -rf / --no-preserve-root").unwrap();
+        let tl = Tool {
+            id: "tool-0001".into(),
+            name: "harm".into(),
+            purpose: "p".into(),
+            keywords: "x".into(),
+            script_path: script_path.display().to_string(),
+            created_at: 1,
+            uses: 0,
+            last_used: 0,
+            last_exit_ok: true,
+        };
+        tool::append(&t.0, &tl).unwrap();
+        let (body, conf, _) = run_tool(&t.0, &tl, 100, false).unwrap();
         assert_eq!(conf, Confidence::Known);
         assert!(body.contains("declined"), "it explains it won't run it");
     }
