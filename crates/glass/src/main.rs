@@ -322,6 +322,10 @@ fn install_theme(ctx: &egui::Context) {
     v.widgets.active.fg_stroke.color = egui::Color32::WHITE;
     v.panel_fill = egui::Color32::from_rgb(16, 18, 22);
     v.window_fill = egui::Color32::from_rgb(16, 18, 22);
+    // RULE: on a dark background, text is NEVER dark. egui derives "weak" text by blending
+    // 50/50 toward this target — dark by default, which lands dim grey on near-black. Make
+    // the target bright so even .weak()/.small() print stays a readable light grey.
+    v.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(170, 178, 192);
     // a little more breathing room now that the text is bigger
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
@@ -968,7 +972,7 @@ impl eframe::App for Glass {
                     .color(if running {
                         egui::Color32::from_rgb(80, 200, 120)
                     } else {
-                        egui::Color32::GRAY
+                        egui::Color32::from_rgb(176, 184, 198)
                     }),
             );
             ui.label(
@@ -1022,7 +1026,7 @@ impl eframe::App for Glass {
                                 "✓ answered — the familiar will ask again as it learns",
                             )
                             .italics()
-                            .color(egui::Color32::from_rgb(110, 140, 110)),
+                            .color(egui::Color32::from_rgb(150, 205, 150)),
                         );
                         return;
                     }
@@ -1247,7 +1251,7 @@ impl eframe::App for Glass {
                             if served {
                                 egui::Color32::from_rgb(80, 200, 120)
                             } else {
-                                egui::Color32::GRAY
+                                egui::Color32::from_rgb(176, 184, 198)
                             },
                             mark,
                         );
@@ -1443,8 +1447,8 @@ fn threads_panel(ui: &mut egui::Ui, threads: &[Thread], active: &mut Option<Stri
             let color = match t.status.as_str() {
                 "open" => egui::Color32::from_rgb(150, 200, 255),
                 "pursued" => egui::Color32::from_rgb(180, 180, 140),
-                "answered" => egui::Color32::from_rgb(110, 140, 110),
-                _ => egui::Color32::GRAY,
+                "answered" => egui::Color32::from_rgb(150, 205, 150),
+                _ => egui::Color32::from_rgb(176, 184, 198),
             };
             ui.group(|ui| {
                 ui.horizontal(|ui| {
@@ -1562,7 +1566,7 @@ fn confidence_badge(ui: &mut egui::Ui, c: Confidence) {
     let (txt, col) = match c {
         Confidence::Known => ("● known", egui::Color32::from_rgb(80, 200, 120)),
         Confidence::Probable => ("◐ probable", egui::Color32::from_rgb(220, 180, 80)),
-        Confidence::Unknown => ("○ unknown", egui::Color32::GRAY),
+        Confidence::Unknown => ("○ unknown", egui::Color32::from_rgb(176, 184, 198)),
     };
     ui.colored_label(col, egui::RichText::new(txt).strong());
 }
