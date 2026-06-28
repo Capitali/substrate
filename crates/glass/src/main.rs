@@ -113,6 +113,14 @@ struct Glass {
     key_openrouter: String,
     key_gemini: String,
     key_cerebras: String,
+    /// Which inner scroll region the human has clicked into. Only that region consumes
+    /// wheel/drag scroll; the rest let it fall through to the page — so hovering a panel
+    /// while scrolling no longer hijacks the gesture (the trackpad pain). `None` = none
+    /// selected, so the whole page scrolls.
+    active_scroll: Option<String>,
+    /// The human's text-zoom (A− / A+), multiplied on top of the display's native scale.
+    /// Persisted to `ui_scale.txt` so a comfortable size survives a restart.
+    ui_scale: f32,
     /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
     /// auto-refreshes on a throttle, not only when Ian clicks something).
     last_refresh: std::time::Instant,
@@ -137,10 +145,18 @@ fn familiar_bin() -> PathBuf {
 /// data dir's `llm/` folder on first run — a tester never copies files by hand.
 const ADAPTER_SH: &str = include_str!("../../../llm/call_llm.sh");
 
-/// Open a URL in the default browser (macOS `open`; best-effort, detached). Used by the
-/// Connect wizard's "Get a key →" buttons so the tester lands on the right provider page.
+/// Open a URL in the default browser — `open` on macOS, `xdg-open` on Linux (incl. a Pi
+/// desktop). Best-effort and detached. Used by the Connect wizard's "Get a key →" buttons.
 fn open_url(url: &str) {
-    let _ = Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "macos")]
+    let openers: &[&str] = &["open"];
+    #[cfg(not(target_os = "macos"))]
+    let openers: &[&str] = &["xdg-open"];
+    for bin in openers {
+        if Command::new(bin).arg(url).spawn().is_ok() {
+            return;
+        }
+    }
 }
 
 /// Clean a pasted API key before it is written into the shell-sourced key.env: trim
@@ -187,16 +203,25 @@ fn read_connect_status(dir: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Speak text aloud — the speech channel, minimally real. macOS ships `say`; elsewhere
-/// this is a no-op for now (the button stays, the capability grows). Best-effort and
-/// detached, so a missing voice or a long sentence never blocks the Glass.
+/// Speak text aloud — the speech channel, minimally real. macOS ships `say`; on Linux we
+/// try the common TTS front-ends in turn (speech-dispatcher's `spd-say`, then `espeak`).
+/// If none is installed it's a silent no-op — the button stays, the capability grows.
+/// Best-effort and detached, so a missing voice or a long sentence never blocks the Glass.
 fn speak(text: &str) {
     if text.trim().is_empty() {
         return;
     }
     // keep it bounded — speak the answer, not an essay
     let line: String = text.chars().take(600).collect();
-    let _ = Command::new("say").arg(line).spawn();
+    #[cfg(target_os = "macos")]
+    let voices: &[&str] = &["say"];
+    #[cfg(not(target_os = "macos"))]
+    let voices: &[&str] = &["spd-say", "espeak-ng", "espeak"];
+    for bin in voices {
+        if Command::new(bin).arg(&line).spawn().is_ok() {
+            return;
+        }
+    }
 }
 
 /// Run `familiar daemon <sub> --data-dir <dir>` and return its trimmed output.
@@ -219,6 +244,64 @@ fn daemon_cmd(dir: &Path, sub: &str) -> String {
     }
 }
 
+/// The human's saved text-zoom, clamped to a sane range. Default 1.25 — a touch larger
+/// than stock, since this is a watch-it-from-across-the-room kind of window.
+fn read_ui_scale(dir: &Path) -> f32 {
+    std::fs::read_to_string(dir.join("ui_scale.txt"))
+        .ok()
+        .and_then(|s| s.trim().parse::<f32>().ok())
+        .unwrap_or(1.25)
+        .clamp(0.8, 2.4)
+}
+
+/// Persist the text-zoom so a comfortable size survives a restart.
+fn write_ui_scale(dir: &Path, scale: f32) {
+    let _ = std::fs::write(dir.join("ui_scale.txt"), format!("{scale:.2}"));
+}
+
+/// Make the Glass easy to read: larger text and higher contrast than egui's defaults —
+/// near-white text on near-black panels. Applied once at startup; the per-user zoom
+/// (A− / A+ in the header) scales everything on top of this. Coloured labels are left
+/// intact (no `override_text_color`); only the base and the dim "weak" greys are lifted.
+fn install_theme(ctx: &egui::Context) {
+    use egui::{FontFamily, FontId, TextStyle};
+    let mut style = (*ctx.style()).clone();
+    style.text_styles = [
+        (
+            TextStyle::Heading,
+            FontId::new(26.0, FontFamily::Proportional),
+        ),
+        (TextStyle::Body, FontId::new(18.0, FontFamily::Proportional)),
+        (
+            TextStyle::Button,
+            FontId::new(18.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(16.0, FontFamily::Monospace),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(14.0, FontFamily::Proportional),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let v = &mut style.visuals;
+    let bright = egui::Color32::from_rgb(238, 240, 245);
+    v.override_text_color = None;
+    v.widgets.noninteractive.fg_stroke.color = bright;
+    v.widgets.inactive.fg_stroke.color = bright;
+    v.widgets.hovered.fg_stroke.color = egui::Color32::WHITE;
+    v.widgets.active.fg_stroke.color = egui::Color32::WHITE;
+    v.panel_fill = egui::Color32::from_rgb(16, 18, 22);
+    v.window_fill = egui::Color32::from_rgb(16, 18, 22);
+    // a little more breathing room now that the text is bigger
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    ctx.set_style(style);
+}
+
 /// The question the familiar is currently posing (it may write `question.txt`; the
 /// default is the seed's standing question).
 fn current_question(dir: &Path) -> String {
@@ -235,6 +318,7 @@ impl Glass {
         let daemon_status = daemon_cmd(&data_dir, "status");
         let answered_question = read_answered(&data_dir);
         let params_edit = snapshot.parameters.clone();
+        let ui_scale = read_ui_scale(&data_dir);
         Glass {
             data_dir,
             snapshot,
@@ -246,6 +330,8 @@ impl Glass {
             key_openrouter: String::new(),
             key_gemini: String::new(),
             key_cerebras: String::new(),
+            active_scroll: None,
+            ui_scale,
             last_refresh: std::time::Instant::now(),
         }
     }
@@ -498,6 +584,28 @@ impl Glass {
                 }
             });
     }
+    /// The self-tuned per-tick LLM budget, shown as a number with a trend arrow — the
+    /// familiar's presence regulation (Law II) made legible. ↓ amber: pulling back so it
+    /// stays responsive to you; ↑ green: leaning into a backlog while it has the headroom;
+    /// → grey: steady. The familiar owns this dial; you never set it.
+    fn budget_meter(&self, ui: &mut egui::Ui) {
+        let p = &self.snapshot.parameters;
+        let (arrow, color) = match p.llm_calls_trend {
+            t if t > 0 => ("↑", egui::Color32::from_rgb(120, 190, 130)),
+            t if t < 0 => ("↓", egui::Color32::from_rgb(220, 160, 70)),
+            _ => ("→", egui::Color32::from_rgb(150, 160, 175)),
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("🫀 self-pacing — LLM calls/tick:").strong());
+            ui.label(
+                egui::RichText::new(format!("{} {arrow}", p.llm_calls_per_tick))
+                    .strong()
+                    .size(20.0)
+                    .color(color),
+            );
+            ui.weak("tuned by the familiar to stay present (Law II)");
+        });
+    }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
     /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
@@ -540,49 +648,42 @@ impl Glass {
                     ui.weak("(ask the familiar something above — its answers land here)");
                     return;
                 }
-                egui::ScrollArea::vertical()
-                    .max_height(300.0)
-                    .id_salt("conversation")
-                    .show(ui, |ui| {
-                        for (a, q) in &items {
-                            ui.group(|ui| {
-                                if let Some(q) = q {
-                                    ui.label(
-                                        egui::RichText::new(format!("🔮 you asked: {q}"))
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(150, 200, 255)),
-                                    );
+                scroll_region(ui, "conversation", 300.0, &mut self.active_scroll, |ui| {
+                    for (a, q) in &items {
+                        ui.group(|ui| {
+                            if let Some(q) = q {
+                                ui.label(
+                                    egui::RichText::new(format!("🔮 you asked: {q}"))
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(150, 200, 255)),
+                                );
+                            }
+                            ui.horizontal(|ui| {
+                                confidence_badge(ui, a.confidence);
+                                if !a.evidence.is_empty() {
+                                    ui.weak(format!("· {}", a.evidence));
                                 }
-                                ui.horizontal(|ui| {
-                                    confidence_badge(ui, a.confidence);
-                                    if !a.evidence.is_empty() {
-                                        ui.weak(format!("· {}", a.evidence));
-                                    }
-                                });
-                                ui.label(&a.body);
-                                ui.horizontal(|ui| {
-                                    if ui.button("🔊 speak").clicked() {
-                                        act = Some(Act::Speak(a.body.clone()));
-                                    }
-                                    if a.feedback.is_empty() {
-                                        if ui.button("👍 helpful").clicked() {
-                                            act =
-                                                Some(Act::Feedback(a.id.clone(), "helpful", None));
-                                        }
-                                        if ui.button("✍ refine").clicked() {
-                                            act = Some(Act::Feedback(
-                                                a.id.clone(),
-                                                "refine",
-                                                q.clone(),
-                                            ));
-                                        }
-                                    } else {
-                                        ui.weak(format!("✓ you marked this: {}", a.feedback));
-                                    }
-                                });
                             });
-                        }
-                    });
+                            ui.label(&a.body);
+                            ui.horizontal(|ui| {
+                                if ui.button("🔊 speak").clicked() {
+                                    act = Some(Act::Speak(a.body.clone()));
+                                }
+                                if a.feedback.is_empty() {
+                                    if ui.button("👍 helpful").clicked() {
+                                        act = Some(Act::Feedback(a.id.clone(), "helpful", None));
+                                    }
+                                    if ui.button("✍ refine").clicked() {
+                                        act =
+                                            Some(Act::Feedback(a.id.clone(), "refine", q.clone()));
+                                    }
+                                } else {
+                                    ui.weak(format!("✓ you marked this: {}", a.feedback));
+                                }
+                            });
+                        });
+                    }
+                });
             });
 
         match act {
@@ -668,6 +769,10 @@ fn signal_meter(ui: &mut egui::Ui, label: &str, sub: &str, value: f64, good_high
 
 impl eframe::App for Glass {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply the human's chosen text-zoom (on top of the display's native scale).
+        if (ctx.zoom_factor() - self.ui_scale).abs() > 0.001 {
+            ctx.set_zoom_factor(self.ui_scale);
+        }
         // Track the daemon live: reload the snapshot on a throttle (not only when Ian acts),
         // so observations, the activity feed, the chart, and new questions stay current —
         // and a wiped data dir reflects immediately rather than lingering as a stale view.
@@ -706,6 +811,18 @@ impl eframe::App for Glass {
                 if ui.button("⏻ Start at login").clicked() {
                     self.daemon_status = daemon_cmd(&self.data_dir, "install");
                 }
+                ui.separator();
+                // Text size — for tired eyes. Scales the whole window; saved across restarts.
+                ui.label("text:");
+                if ui.button("A−").clicked() {
+                    self.ui_scale = (self.ui_scale - 0.1).clamp(0.8, 2.4);
+                    write_ui_scale(&self.data_dir, self.ui_scale);
+                }
+                if ui.button("A+").clicked() {
+                    self.ui_scale = (self.ui_scale + 0.1).clamp(0.8, 2.4);
+                    write_ui_scale(&self.data_dir, self.ui_scale);
+                }
+                ui.weak(format!("{:.0}%", self.ui_scale * 100.0));
             });
             let running = self.daemon_status.contains("running");
             ui.label(
@@ -847,13 +964,17 @@ impl eframe::App for Glass {
             .show(ui, |ui| {
                 signals_chart(ui, &self.snapshot.ticks);
                 ui.add_space(4.0);
+                self.budget_meter(ui);
+                ui.add_space(4.0);
                 ui.label(egui::RichText::new("recent actions").weak().small());
-                activity_feed(ui, &self.snapshot.ticks, now_secs());
+                activity_feed(ui, &self.snapshot.ticks, now_secs(), &mut self.active_scroll);
             });
 
             egui::CollapsingHeader::new(egui::RichText::new("🧵 Theories & threads").strong())
                 .default_open(false)
-                .show(ui, |ui| threads_panel(ui, &self.snapshot.threads));
+                .show(ui, |ui| {
+                    threads_panel(ui, &self.snapshot.threads, &mut self.active_scroll)
+                });
 
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!(
@@ -863,7 +984,9 @@ impl eframe::App for Glass {
                 .strong(),
             )
             .default_open(false)
-            .show(ui, |ui| tools_panel(ui, &self.snapshot.tools));
+            .show(ui, |ui| {
+                tools_panel(ui, &self.snapshot.tools, &mut self.active_scroll)
+            });
 
             egui::CollapsingHeader::new(
                 egui::RichText::new("⚙ Settings — shared parameters").strong(),
@@ -1037,73 +1160,110 @@ fn signals_chart(ui: &mut egui::Ui, ticks: &[ActivityTick]) {
     );
 }
 
+/// A bounded scroll region that only scrolls once the human has *clicked into it* — so
+/// merely hovering it while scrolling the page no longer hijacks the gesture (the trackpad
+/// pain with nested scroll areas). Clicking a different region hands focus over; the active
+/// region shows a faint accent border. `active` holds the id of the selected region.
+fn scroll_region(
+    ui: &mut egui::Ui,
+    id: &str,
+    max_height: f32,
+    active: &mut Option<String>,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    let is_active = active.as_deref() == Some(id);
+    let out = egui::ScrollArea::vertical()
+        .max_height(max_height)
+        .id_salt(id)
+        .enable_scrolling(is_active)
+        .show(ui, add_contents);
+    // A press anywhere inside the visible region selects it. Detected via the pointer
+    // position (not a click interaction) so it never swallows clicks on inner buttons.
+    let pressed_inside = ui.input(|i| {
+        i.pointer.any_pressed()
+            && i.pointer
+                .interact_pos()
+                .is_some_and(|p| out.inner_rect.contains(p))
+    });
+    if pressed_inside {
+        *active = Some(id.to_string());
+    }
+    if is_active {
+        ui.painter().rect_stroke(
+            out.inner_rect,
+            egui::CornerRadius::same(3),
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 130, 180)),
+            egui::StrokeKind::Inside,
+        );
+    } else {
+        ui.weak(egui::RichText::new("click to scroll this panel").small());
+    }
+}
+
 /// A feed of the most recent *consequential* ticks (skipping quiet ones), newest first —
 /// so the human sees the familiar theorize, pursue, test, and promote as it happens.
-fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
-    egui::ScrollArea::vertical()
-        .max_height(170.0)
-        .id_salt("activity")
-        .show(ui, |ui| {
-            let mut shown = 0;
-            for t in ticks.iter().rev() {
-                if shown >= 14 {
-                    break;
-                }
-                if t.quiet() {
-                    continue;
-                }
-                shown += 1;
-                let mut parts: Vec<String> = Vec::new();
-                if t.theorized {
-                    parts.push("💭 theorized".into());
-                }
-                if t.pursued > 0 {
-                    parts.push(format!("→ pursued {}", t.pursued));
-                }
-                if t.sensed > 0 {
-                    parts.push(format!("👁 sensed {}", t.sensed));
-                }
-                if t.new_candidates > 0 {
-                    parts.push(format!("✦ {} new", t.new_candidates));
-                }
-                if t.tested > 0 {
-                    parts.push(format!("✓ tested {}", t.tested));
-                }
-                if t.promoted > 0 {
-                    parts.push(format!("↑ promoted {}", t.promoted));
-                }
-                if t.mutated > 0 {
-                    parts.push(format!("⤳ mutated {}", t.mutated));
-                }
-                if t.archived > 0 {
-                    parts.push(format!("🗄 archived {}", t.archived));
-                }
-                if t.reverted > 0 {
-                    parts.push(format!("↩ reverted {} setting(s)", t.reverted));
-                }
-                if t.marginalized > 0 {
-                    parts.push(format!("⛔ marginalized {}", t.marginalized));
-                }
-                if t.answered > 0 {
-                    parts.push(format!("🔮 answered {}", t.answered));
-                }
-                if t.refused > 0 {
-                    parts.push(format!("⛔ refused {} request(s)", t.refused));
-                }
-                if t.declined > 0 {
-                    parts.push(format!("🛑 declined to run {}", t.declined));
-                }
-                if t.structural_changed {
-                    parts.push("⚙ world changed".into());
-                }
-                ui.label(format!("{:>5}  {}", ago(now, t.ts), parts.join("  ·  ")));
+fn activity_feed(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64, active: &mut Option<String>) {
+    scroll_region(ui, "activity", 170.0, active, |ui| {
+        let mut shown = 0;
+        for t in ticks.iter().rev() {
+            if shown >= 14 {
+                break;
             }
-            if shown == 0 {
-                ui.weak(
-                    "(no actions yet — the familiar acts as loops form and you answer its questions)",
-                );
+            if t.quiet() {
+                continue;
             }
-        });
+            shown += 1;
+            let mut parts: Vec<String> = Vec::new();
+            if t.theorized {
+                parts.push("💭 theorized".into());
+            }
+            if t.pursued > 0 {
+                parts.push(format!("→ pursued {}", t.pursued));
+            }
+            if t.sensed > 0 {
+                parts.push(format!("👁 sensed {}", t.sensed));
+            }
+            if t.new_candidates > 0 {
+                parts.push(format!("✦ {} new", t.new_candidates));
+            }
+            if t.tested > 0 {
+                parts.push(format!("✓ tested {}", t.tested));
+            }
+            if t.promoted > 0 {
+                parts.push(format!("↑ promoted {}", t.promoted));
+            }
+            if t.mutated > 0 {
+                parts.push(format!("⤳ mutated {}", t.mutated));
+            }
+            if t.archived > 0 {
+                parts.push(format!("🗄 archived {}", t.archived));
+            }
+            if t.reverted > 0 {
+                parts.push(format!("↩ reverted {} setting(s)", t.reverted));
+            }
+            if t.marginalized > 0 {
+                parts.push(format!("⛔ marginalized {}", t.marginalized));
+            }
+            if t.answered > 0 {
+                parts.push(format!("🔮 answered {}", t.answered));
+            }
+            if t.refused > 0 {
+                parts.push(format!("⛔ refused {} request(s)", t.refused));
+            }
+            if t.declined > 0 {
+                parts.push(format!("🛑 declined to run {}", t.declined));
+            }
+            if t.structural_changed {
+                parts.push("⚙ world changed".into());
+            }
+            ui.label(format!("{:>5}  {}", ago(now, t.ts), parts.join("  ·  ")));
+        }
+        if shown == 0 {
+            ui.weak(
+                "(no actions yet — the familiar acts as loops form and you answer its questions)",
+            );
+        }
+    });
 }
 
 /// A compact relative timestamp like `12s`, `5m`, `2h`.
@@ -1120,81 +1280,75 @@ fn ago(now: i64, then: i64) -> String {
 
 /// The familiar's theories and threads — its questions, interpretations, and the
 /// directions it pursued (its own, `llm`; and Ian's answers, `observer`).
-fn threads_panel(ui: &mut egui::Ui, threads: &[Thread]) {
+fn threads_panel(ui: &mut egui::Ui, threads: &[Thread], active: &mut Option<String>) {
     if threads.is_empty() {
         ui.weak("(no theories yet — they form as the familiar interprets what it observes)");
         return;
     }
-    egui::ScrollArea::vertical()
-        .max_height(220.0)
-        .id_salt("threads")
-        .show(ui, |ui| {
-            for t in threads.iter().rev().take(20) {
-                let color = match t.status.as_str() {
-                    "open" => egui::Color32::from_rgb(150, 200, 255),
-                    "pursued" => egui::Color32::from_rgb(180, 180, 140),
-                    "answered" => egui::Color32::from_rgb(110, 140, 110),
-                    _ => egui::Color32::GRAY,
-                };
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(color, format!("[{}]", t.status));
-                        ui.weak(format!("{} · {}", t.id, t.origin));
-                    });
-                    if !t.theory.is_empty() {
-                        ui.label(format!("💭 {}", t.theory));
-                    }
-                    if !t.direction.is_empty() {
-                        ui.label(
-                            egui::RichText::new(format!("→ {}", t.direction))
-                                .small()
-                                .color(egui::Color32::from_rgb(160, 190, 160)),
-                        );
-                    }
+    scroll_region(ui, "threads", 220.0, active, |ui| {
+        for t in threads.iter().rev().take(20) {
+            let color = match t.status.as_str() {
+                "open" => egui::Color32::from_rgb(150, 200, 255),
+                "pursued" => egui::Color32::from_rgb(180, 180, 140),
+                "answered" => egui::Color32::from_rgb(110, 140, 110),
+                _ => egui::Color32::GRAY,
+            };
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(color, format!("[{}]", t.status));
+                    ui.weak(format!("{} · {}", t.id, t.origin));
                 });
-            }
-        });
+                if !t.theory.is_empty() {
+                    ui.label(format!("💭 {}", t.theory));
+                }
+                if !t.direction.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!("→ {}", t.direction))
+                            .small()
+                            .color(egui::Color32::from_rgb(160, 190, 160)),
+                    );
+                }
+            });
+        }
+    });
 }
 
 /// The familiar's tool library — the scripts it authored once and now reuses instead of
 /// re-asking the LLM (Law I made visible: the future cheaper than the past). Newest first,
 /// each with its purpose and how many times it has paid off.
-fn tools_panel(ui: &mut egui::Ui, tools: &[Tool]) {
+fn tools_panel(ui: &mut egui::Ui, tools: &[Tool], active: &mut Option<String>) {
     if tools.is_empty() {
         ui.weak("(no tools yet — the familiar saves a tool the first time it writes one to run something)");
         return;
     }
-    egui::ScrollArea::vertical()
-        .max_height(220.0)
-        .id_salt("tools")
-        .show(ui, |ui| {
-            for t in tools.iter().rev() {
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        let color = if t.last_exit_ok {
-                            egui::Color32::from_rgb(150, 200, 255)
-                        } else {
-                            egui::Color32::from_rgb(200, 120, 80)
-                        };
-                        ui.colored_label(color, format!("🛠 {}", t.name));
-                        ui.weak(if t.uses == 1 {
-                            "· 1 use".to_string()
-                        } else {
-                            format!("· {} uses", t.uses)
-                        });
-                        if !t.last_exit_ok {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(200, 120, 80),
-                                "· last run failed",
-                            );
-                        }
+    scroll_region(ui, "tools", 220.0, active, |ui| {
+        for t in tools.iter().rev() {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    let color = if t.last_exit_ok {
+                        egui::Color32::from_rgb(150, 200, 255)
+                    } else {
+                        egui::Color32::from_rgb(200, 120, 80)
+                    };
+                    ui.colored_label(color, format!("🛠 {}", t.name));
+                    ui.weak(if t.uses == 1 {
+                        "· 1 use".to_string()
+                    } else {
+                        format!("· {} uses", t.uses)
                     });
-                    if !t.purpose.is_empty() {
-                        ui.label(&t.purpose);
+                    if !t.last_exit_ok {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(200, 120, 80),
+                            "· last run failed",
+                        );
                     }
                 });
-            }
-        });
+                if !t.purpose.is_empty() {
+                    ui.label(&t.purpose);
+                }
+            });
+        }
+    });
 }
 
 /// The shared-parameters editor. Returns true when Ian saved a change. Co-ownership
@@ -1343,10 +1497,16 @@ fn data_dir_from_args() -> PathBuf {
 
 fn main() -> eframe::Result<()> {
     let data_dir = data_dir_from_args();
-    let options = eframe::NativeOptions::default();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 940.0]),
+        ..Default::default()
+    };
     eframe::run_native(
         "The Familiar — the Glass",
         options,
-        Box::new(|_cc| Ok(Box::new(Glass::new(data_dir)))),
+        Box::new(|cc| {
+            install_theme(&cc.egui_ctx);
+            Ok(Box::new(Glass::new(data_dir)))
+        }),
     )
 }
