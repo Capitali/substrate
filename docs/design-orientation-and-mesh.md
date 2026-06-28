@@ -67,6 +67,29 @@ sources stay off unless granted. Feeds richer first questions.
 - **Sharing policy**: tools shareable by default once `allow_mesh` is open; observer/personal
   data shared only under explicit scoping — never a blanket gossip of who-knows-whom.
 
+## Identity linking across modalities (future)
+
+Identity awareness only grows in importance, and visual/auditory observation is what will
+let the familiar maintain a *linked* identity — recognising the same person across sessions
+and channels without asking each time.
+
+- **The registry is the anchor.** `kernel::identity::Identity` is the durable record a person
+  is linked *to*. It grows link/signature fields over time: a face embedding (from the now-
+  authorized camera), a voice print, and behavioural/pattern signatures (rhythms, phrasing,
+  schedule). Each is a *link* to an existing identity, not a new record — the familiar
+  recognises "this is the person I already know as X".
+- **Recognition feeds identity, identity feeds presence.** Face/voice/pattern recognition
+  resolves *who is present* — sharpening Law II (presence judged against the actual served,
+  the entity tagging the cold-start classifier lacked) and letting the familiar greet by name
+  rather than re-ask.
+- **Precise and consented, like names.** A new link is confirmed before it's kept (the same
+  read-back discipline as the name), and biometric signals are strongly sensitive — gated like
+  the camera (fail-closed, human-opened), never shared across mesh nodes without explicit
+  scoping. Recognition must be correctable: a wrong link is fixable, never sticky.
+- **Hooks in place:** the camera gate is open; the identity registry exists with a `relation`
+  field and room for signatures; the confirm-before-keep flow is the model for confirming a
+  link. The recognition pipelines (vision/audio embeddings) are the new work.
+
 ## Notes
 
 - `std::env::consts::OS` / `ARCH` and the existing `sense` perception are the right basis for
