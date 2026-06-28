@@ -1170,6 +1170,7 @@ dependencies = [
  "egui",
  "egui_plot",
  "familiar-kernel",
+ "serde_json",
 ]
 
 [[package]]

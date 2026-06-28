@@ -108,6 +108,11 @@ struct Glass {
     params_edit: Parameters,
     /// Ian's in-progress free-form request to the familiar ("ask the familiar").
     ask: String,
+    /// Keys typed into the Connect wizard — held only until Connect persists them to
+    /// key.env, then cleared. Never stored in the snapshot; shown masked.
+    key_openrouter: String,
+    key_gemini: String,
+    key_cerebras: String,
     /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
     /// auto-refreshes on a throttle, not only when Ian clicks something).
     last_refresh: std::time::Instant,
@@ -126,6 +131,60 @@ fn familiar_bin() -> PathBuf {
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("familiar")))
         .unwrap_or_else(|| PathBuf::from("familiar"))
+}
+
+/// The reference LLM adapter, embedded so the Connect wizard can install it into the
+/// data dir's `llm/` folder on first run — a tester never copies files by hand.
+const ADAPTER_SH: &str = include_str!("../../../llm/call_llm.sh");
+
+/// Open a URL in the default browser (macOS `open`; best-effort, detached). Used by the
+/// Connect wizard's "Get a key →" buttons so the tester lands on the right provider page.
+fn open_url(url: &str) {
+    let _ = Command::new("open").arg(url).spawn();
+}
+
+/// Clean a pasted API key before it is written into the shell-sourced key.env: trim
+/// surrounding whitespace and strip characters that would break the `export K="..."`
+/// line (quotes/newlines). Real keys are token text, so this never alters a valid one.
+fn sanitize_key(raw: &str) -> String {
+    raw.trim()
+        .chars()
+        .filter(|c| !matches!(c, '"' | '\n' | '\r' | '\\'))
+        .collect()
+}
+
+/// Set a file's permission bits (so key.env is 0600 and the adapter is executable). A
+/// no-op off Unix — the Glass targets macOS, but this keeps the code portable.
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+}
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) {}
+
+/// Does `<dir>/llm/key.env` hold at least one non-empty API key? Used to tell whether the
+/// familiar has been connected to a provider — without ever surfacing the secret itself.
+fn llm_key_present(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("llm").join("key.env"))
+        .map(|s| {
+            s.lines().any(|l| {
+                l.contains("_API_KEY=")
+                    && l.split_once('=')
+                        .map(|(_, v)| !v.trim().trim_matches('"').is_empty())
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// The last Connect/Test result line, written by the wizard (and by the background test
+/// thread) so the status survives a repaint without blocking the UI.
+fn read_connect_status(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("llm").join("connect_status.txt"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Speak text aloud — the speech channel, minimally real. macOS ships `say`; elsewhere
@@ -184,6 +243,9 @@ impl Glass {
             answered_question,
             params_edit,
             ask: String::new(),
+            key_openrouter: String::new(),
+            key_gemini: String::new(),
+            key_cerebras: String::new(),
             last_refresh: std::time::Instant::now(),
         }
     }
@@ -240,6 +302,201 @@ impl Glass {
             self.ask = text;
         }
         self.refresh();
+    }
+    /// Write the wizard's status line to disk so it survives repaints and the background
+    /// test thread can update it without touching the UI.
+    fn write_connect_status(&self, s: &str) {
+        let llm = self.data_dir.join("llm");
+        let _ = std::fs::create_dir_all(&llm);
+        let _ = std::fs::write(llm.join("connect_status.txt"), s);
+    }
+    /// Connect the familiar to an LLM provider — a human act, performed through the human's
+    /// instrument (the kernel itself has no boundary-write path). Installs the embedded
+    /// adapter, writes the pasted key(s) to a 0600 key.env, and opens the `allow_llm` gate
+    /// in boundary.json. One key is enough; more just add failover. Then tests the link.
+    fn connect_llm(&mut self) {
+        let keys = [
+            ("OPENROUTER_API_KEY", sanitize_key(&self.key_openrouter)),
+            ("GEMINI_API_KEY", sanitize_key(&self.key_gemini)),
+            ("CEREBRAS_API_KEY", sanitize_key(&self.key_cerebras)),
+        ];
+        if keys.iter().all(|(_, v)| v.is_empty()) {
+            self.write_connect_status(
+                "enter at least one key — OpenRouter is the simplest place to start",
+            );
+            return;
+        }
+        let llm = self.data_dir.join("llm");
+        if std::fs::create_dir_all(&llm).is_err() {
+            self.write_connect_status("✗ could not create the llm/ folder");
+            return;
+        }
+        // 1. install the adapter (executable)
+        let adapter = llm.join("call_llm.sh");
+        if std::fs::write(&adapter, ADAPTER_SH).is_err() {
+            self.write_connect_status("✗ could not write the adapter");
+            return;
+        }
+        set_mode(&adapter, 0o755);
+        // 2. write key.env (only the keys provided), readable by the owner alone
+        let mut env = String::from("# Familiar LLM keys — local secret, never committed.\n");
+        for (name, v) in &keys {
+            if !v.is_empty() {
+                env.push_str(&format!("export {name}=\"{v}\"\n"));
+            }
+        }
+        let key_env = llm.join("key.env");
+        if std::fs::write(&key_env, env).is_err() {
+            self.write_connect_status("✗ could not write key.env");
+            return;
+        }
+        set_mode(&key_env, 0o600);
+        // 3. open the LLM gate (minimal widening — the guard for a consult checks only
+        //    allow_llm). Preserve every other grant; never silently widen execute/camera.
+        let mut b = boundary::load(&self.data_dir).unwrap_or_else(|_| Boundary::closed());
+        b.allow_llm = true;
+        if b.phase == "closed" {
+            b.phase = "phase-1".to_string();
+        }
+        match serde_json::to_string_pretty(&b) {
+            Ok(json) => {
+                let _ = std::fs::write(self.data_dir.join("boundary.json"), json);
+            }
+            Err(_) => {
+                self.write_connect_status("✗ could not write boundary.json");
+                return;
+            }
+        }
+        // the keys are persisted now — drop them from memory
+        self.key_openrouter.clear();
+        self.key_gemini.clear();
+        self.key_cerebras.clear();
+        self.write_connect_status("saved — testing the connection…");
+        self.refresh();
+        self.test_llm();
+    }
+    /// Test the LLM link in the background (a consult can take a few seconds; never freeze
+    /// the window). Writes the result to the status file, which the wizard re-reads.
+    fn test_llm(&self) {
+        let dir = self.data_dir.clone();
+        std::thread::spawn(move || {
+            let out = Command::new(familiar_bin())
+                .arg("consult")
+                .arg("--data-dir")
+                .arg(&dir)
+                .arg("--prompt")
+                .arg("Reply only with this exact JSON and nothing else: {\"ok\": true}")
+                .output();
+            let status = match out {
+                Ok(o) => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    if stdout.contains("REFUSE") {
+                        "✗ refused — the boundary's allow_llm is still closed".to_string()
+                    } else if stdout.trim().is_empty() {
+                        let why = stderr.lines().last().unwrap_or("").trim();
+                        format!("✗ no response — {why}")
+                    } else {
+                        // the adapter logs "LLM response via <provider>" to stderr
+                        let via = stderr
+                            .lines()
+                            .rev()
+                            .find(|l| l.contains("response via"))
+                            .map(|l| l.trim().to_string())
+                            .unwrap_or_else(|| "connected".to_string());
+                        format!("✓ connected — {via}")
+                    }
+                }
+                Err(e) => format!("✗ could not run the test ({e})"),
+            };
+            let _ = std::fs::write(dir.join("llm").join("connect_status.txt"), status);
+        });
+    }
+    /// The Connect wizard — the place a tester gives the familiar a mind. Collapsed once
+    /// connected, open on first run. Acquiring the key is the only manual step; everything
+    /// else (adapter, key.env, the boundary gate) the wizard does on a single click.
+    fn connect_panel(&mut self, ui: &mut egui::Ui) {
+        let connected = self.snapshot.boundary.allow_llm
+            && self.data_dir.join("llm").join("call_llm.sh").exists()
+            && llm_key_present(&self.data_dir);
+        let status = read_connect_status(&self.data_dir);
+        let title = if connected {
+            "🔌 Connect — the familiar's mind (LLM)  ·  ✓ connected"
+        } else {
+            "🔌 Connect — give the familiar a mind to think with"
+        };
+        egui::CollapsingHeader::new(egui::RichText::new(title).strong())
+            .default_open(!connected)
+            .show(ui, |ui| {
+                ui.label(
+                    "The familiar thinks by consulting an LLM across a gated boundary. One \
+                     key is enough to start — the others are optional and just add failover. \
+                     Your key is stored locally on this machine (llm/key.env) and is only \
+                     ever sent to the provider you choose, never anywhere else.",
+                );
+                ui.add_space(4.0);
+                let row =
+                    |ui: &mut egui::Ui, label: &str, hint: &str, url: &str, field: &mut String| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(label).strong());
+                            if ui.button("Get a key →").clicked() {
+                                open_url(url);
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(field)
+                                    .password(true)
+                                    .hint_text(hint)
+                                    .desired_width(240.0),
+                            );
+                        });
+                    };
+                row(
+                    ui,
+                    "OpenRouter (start here)",
+                    "paste your OpenRouter key",
+                    "https://openrouter.ai/keys",
+                    &mut self.key_openrouter,
+                );
+                row(
+                    ui,
+                    "Google Gemini (optional)",
+                    "paste your Gemini key",
+                    "https://aistudio.google.com/apikey",
+                    &mut self.key_gemini,
+                );
+                row(
+                    ui,
+                    "Cerebras (optional)",
+                    "paste your Cerebras key",
+                    "https://cloud.cerebras.ai",
+                    &mut self.key_cerebras,
+                );
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let label = if connected {
+                        "Update keys & reconnect"
+                    } else {
+                        "Connect"
+                    };
+                    if ui.button(label).clicked() {
+                        self.connect_llm();
+                    }
+                    if connected && ui.button("Test connection").clicked() {
+                        self.write_connect_status("testing the connection…");
+                        self.test_llm();
+                    }
+                });
+                if let Some(s) = status {
+                    let color = if s.starts_with('✓') {
+                        egui::Color32::from_rgb(110, 180, 110)
+                    } else if s.starts_with('✗') {
+                        egui::Color32::from_rgb(210, 130, 80)
+                    } else {
+                        egui::Color32::from_rgb(170, 170, 140)
+                    };
+                    ui.colored_label(color, s);
+                }
+            });
     }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
@@ -476,6 +733,10 @@ impl eframe::App for Glass {
             if let Some(err) = &self.snapshot.error {
                 ui.colored_label(egui::Color32::RED, err);
             }
+
+            // --- first run: connect the familiar to a mind (collapses once connected) ---
+            ui.add_space(6.0);
+            self.connect_panel(ui);
 
             // --- the interaction channel: the familiar asks, Ian answers ---
             ui.add_space(6.0);
