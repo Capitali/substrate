@@ -24,6 +24,7 @@ use familiar_kernel::loops::{self, Loop};
 use familiar_kernel::observation::{self, Observation};
 use familiar_kernel::parameters::Parameters;
 use familiar_kernel::presence::{self, PresenceSignal};
+use familiar_kernel::question;
 use familiar_kernel::request::{self, Answer, Confidence, Request};
 use familiar_kernel::service::{self, ServiceSignal};
 use familiar_kernel::thread::{self, Thread};
@@ -419,13 +420,17 @@ impl Glass {
                 1.0,
             );
             let _ = observation::record(&self.data_dir, obs);
-            // greet by name and move the channel on, so the name-ask doesn't linger; the
-            // familiar's own voice carries the reassurance that the name is kept.
+            // greet by name and move straight to the origin-story root question — kept in the
+            // registry so it recurs when appropriate. The greeting carries the reassurance
+            // that the name is kept; the channel maps to the root question (q-root).
+            let _ = question::ensure_root(&self.data_dir, now);
             let greeting = format!(
                 "Good to meet you, {}. I'll remember that. What do you need most today?",
                 id.name
             );
             let _ = std::fs::write(self.data_dir.join("question.txt"), &greeting);
+            let _ = std::fs::write(self.data_dir.join("active_question.txt"), question::ROOT_ID);
+            let _ = question::record_asked(&self.data_dir, question::ROOT_ID, now);
             self.answered_question = None;
             self.observer = Some(id);
             self.name_entry.clear();
@@ -878,8 +883,39 @@ impl Glass {
                 actor,
             },
         );
+        // mark the registry question answered (it rests, then recurs when appropriate) and
+        // clear the active slot so the factory coordinates the next one.
+        if let Some(id) = self.active_question_id() {
+            let _ = question::record_answered(&self.data_dir, &id, now_secs());
+        }
+        self.clear_active_question();
         // remember the answered question so it fades out and can't be answered twice;
         // persist it so a restart doesn't re-show it.
+        let _ = std::fs::write(self.data_dir.join("last_answered.txt"), &q);
+        self.answered_question = Some(q);
+        self.response.clear();
+        self.refresh();
+    }
+    /// The id of the question currently on screen (set by the factory when it surfaces one).
+    fn active_question_id(&self) -> Option<String> {
+        std::fs::read_to_string(self.data_dir.join("active_question.txt"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+    fn clear_active_question(&self) {
+        let _ = std::fs::write(self.data_dir.join("active_question.txt"), "");
+    }
+    /// Dismiss the current question — never answered, never disposed. The familiar records
+    /// the dismissal (it rests longer the more it's waved off) and will ask again at a time
+    /// it judges right. Law III: an ask is never a demand; declining is always allowed and
+    /// always honored.
+    fn dismiss_question(&mut self) {
+        let q = current_question(&self.data_dir);
+        if let Some(id) = self.active_question_id() {
+            let _ = question::record_dismissed(&self.data_dir, &id, now_secs(), "");
+        }
+        self.clear_active_question();
         let _ = std::fs::write(self.data_dir.join("last_answered.txt"), &q);
         self.answered_question = Some(q);
         self.response.clear();
@@ -1019,11 +1055,11 @@ impl eframe::App for Glass {
                 .fill(egui::Color32::from_rgb(28, 34, 44))
                 .show(ui, |ui| {
                     if already_answered {
-                        // the question has been answered — fade it out so it isn't
-                        // answered twice; it returns when the familiar asks something new.
+                        // answered or dismissed — fade it out so it isn't acted on twice; the
+                        // factory brings the next (or this one again) when it judges the moment.
                         ui.label(
                             egui::RichText::new(
-                                "✓ answered — the familiar will ask again as it learns",
+                                "✓ noted — the familiar will ask again when it's useful",
                             )
                             .italics()
                             .color(egui::Color32::from_rgb(150, 205, 150)),
@@ -1045,10 +1081,16 @@ impl eframe::App for Glass {
                         if ui.button("Send").clicked() {
                             self.submit_response();
                         }
+                        // Law III: a question can always be set aside, never forced. A
+                        // dismissal isn't discarded — it's tracked, and the familiar asks
+                        // again at a time it judges right.
+                        if ui.button("Dismiss").clicked() {
+                            self.dismiss_question();
+                        }
                         ui.add_enabled(false, egui::Button::new("🎤 speak (soon)"));
                         ui.add_enabled(false, egui::Button::new("📷 show (soon)"));
                         ui.label(
-                            egui::RichText::new("your reply is recorded as an observation")
+                            egui::RichText::new("answer, or dismiss — your call")
                                 .weak()
                                 .small(),
                         );

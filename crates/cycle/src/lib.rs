@@ -40,6 +40,7 @@ use familiar_kernel::loops;
 use familiar_kernel::observation;
 use familiar_kernel::parameters::Parameters;
 use familiar_kernel::presence;
+use familiar_kernel::question;
 use familiar_kernel::request::{self, Answer, Confidence};
 use familiar_kernel::service;
 use familiar_kernel::thread::{self, Thread};
@@ -218,6 +219,74 @@ fn theorize_due(dir: &Path, now: i64, obs: &[observation::Observation]) -> bool 
 const NAME_QUESTION: &str =
     "Before we go further — what may I call you? I'll keep your name; names matter to me.";
 
+/// The id of the question currently on screen and awaiting a response. Empty when nothing
+/// is being asked — that's the factory's cue to coordinate and surface the next one.
+const ACTIVE_QUESTION_FILE: &str = "active_question.txt";
+
+/// Unmet human needs awaiting the familiar: open threads the human originated (their stated
+/// needs, not yet closed). Bias for the question policy — service the person's needs (Law I)
+/// over the familiar's own curiosity.
+fn unmet_needs(dir: &Path) -> usize {
+    thread::load(dir)
+        .map(|ts| {
+            ts.iter()
+                .filter(|t| t.status == "open" && t.origin == "observer")
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Coordinate the familiar's questions under the Three Laws and surface at most one.
+///
+/// - **Law I (service):** questions that complete an observed human need outrank the
+///   familiar's own (origin "need" > "root" > "llm"); a question the human keeps dismissing
+///   rests longer, so the familiar never wastes the attention its service is priced in.
+/// - **Law II (presence):** ask into a room with someone in it — when the served have
+///   withdrawn, the familiar holds its questions rather than pile them into an empty world;
+///   and it asks one at a time, never a barrage.
+/// - **Law III (no coercion):** a question is an ask, never a demand — it can always be
+///   dismissed, and a dismissal is honored (tracked, rested), never overridden.
+fn coordinate_questions(dir: &Path, now: i64, obs: &[observation::Observation]) -> io::Result<()> {
+    question::ensure_root(dir, now)?;
+    // Law II: don't ask into an empty room. Presence is judged against the *known* observer
+    // (identity gives us the entity the cold-start word-classifier couldn't) — the served
+    // are present if their own actions have been seen within the withdrawal horizon.
+    if !observer_present(dir, obs, now) {
+        return Ok(());
+    }
+    // A question already on screen and unanswered? Leave it; the human answers in their time.
+    let active = fs::read_to_string(dir.join(ACTIVE_QUESTION_FILE))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if !active.is_empty() {
+        return Ok(());
+    }
+    let questions = question::load(dir)?;
+    if let Some(q) = question::next(&questions, now, unmet_needs(dir)) {
+        fs::write(dir.join(QUESTION_FILE), &q.text)?;
+        fs::write(dir.join(ACTIVE_QUESTION_FILE), &q.id)?;
+        question::record_asked(dir, &q.id, now)?;
+    }
+    Ok(())
+}
+
+/// Is the known observer present — have their own actions been seen within the withdrawal
+/// horizon? Identity-aware Law II: the cold-start presence signal can't recognise a named
+/// human, but once the familiar knows who it serves it can judge presence by their actual
+/// activity. Unknown observer → not present (the name-ask handles that case).
+fn observer_present(dir: &Path, obs: &[observation::Observation], now: i64) -> bool {
+    let Some(handle) = familiar_kernel::identity::current(dir) else {
+        return false;
+    };
+    obs.iter()
+        .filter(|o| o.actor == handle)
+        .map(|o| o.ts)
+        .max()
+        .map(|last| now - last < presence::WITHDRAWAL_HORIZON_SECS)
+        .unwrap_or(false)
+}
+
 /// How the familiar refers to the person it serves in its own prompts: by name once it has
 /// learned one (names matter), otherwise the neutral "the person I serve". The familiar no
 /// longer assumes a name — it asks, confirms, and remembers (see [`identity`]).
@@ -287,8 +356,11 @@ fn maybe_theorize(
     if q.is_empty() && theory.is_empty() {
         return Ok(false);
     }
+    // The theorized question doesn't go straight to the human — it enters the question
+    // registry, where the factory coordinates *all* its questions and decides which to
+    // surface, and when (see `coordinate_questions`). One voice, not a pile.
     if !q.is_empty() {
-        fs::write(dir.join(QUESTION_FILE), &q)?;
+        question::add(dir, &q, "llm", now)?;
     }
     let seq = thread::load(dir)?.len() + 1;
     thread::append(
@@ -1289,12 +1361,15 @@ pub fn tick(
     // 7. Interpret — the factory forms a question + theory (gated, rate-limited).
     let theorized = maybe_theorize(dir, now, &obs, &detected, allow_llm)?;
 
-    // The familiar becomes familiar: when it does not yet know who it serves, it chooses to
-    // ask their name before anything else — names matter to it, and it keeps them. This
-    // overrides whatever it theorized so the introduction comes first (Law II: attend to
-    // the person, not only the patterns). Once a name is confirmed, this never fires again.
+    // The familiar becomes familiar first: until it knows who it serves, the name-ask comes
+    // before anything else (Law II: attend to the person, not only the patterns). Once a
+    // name is confirmed, that never fires again — and the factory coordinates its questions
+    // (root + theories + needs) through the registry, surfacing one at a time under the
+    // Three Laws.
     if familiar_kernel::identity::current(dir).is_none() {
         fs::write(dir.join(QUESTION_FILE), NAME_QUESTION)?;
+    } else {
+        coordinate_questions(dir, now, &obs)?;
     }
 
     // 8. Act — turn open threads into candidate work (executed on a later tick),
