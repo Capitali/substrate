@@ -747,13 +747,33 @@ fn signals_chart(ui: &mut egui::Ui, ticks: &[ActivityTick]) {
     Plot::new("signals")
         .height(160.0)
         .legend(Legend::default())
+        // The signals are all 0..1, so the vertical scale is fixed — no accidental
+        // vertical drift, and small changes read at a stable size.
         .include_y(0.0)
-        .include_y(1.0)
+        .include_y(1.05)
+        // Trackpad-friendly: the time axis (x) is the only one that moves. Pinch or
+        // ctrl-scroll zooms it; a drag or a *horizontal* two-finger scroll pans it left
+        // and right — while a *vertical* two-finger scroll falls through to the page, so
+        // the panel keeps scrolling under your fingers instead of the plot eating it.
+        .allow_zoom(egui::Vec2b::new(true, false))
+        .allow_drag(egui::Vec2b::new(true, false))
+        .allow_scroll(egui::Vec2b::new(true, false))
+        .allow_boxed_zoom(false)
+        // By default the view frames the whole displayed range (auto-centered on the data);
+        // a zoom or pan is a temporary inspection you can undo with a double-click.
+        .auto_bounds(egui::Vec2b::new(true, true))
+        .set_margin_fraction(egui::vec2(0.02, 0.05))
         .show(ui, |p| {
             p.line(Line::new(series(|t| t.service)).name("service (I)"));
             p.line(Line::new(series(|t| t.presence)).name("presence (II)"));
             p.line(Line::new(series(|t| t.capacities)).name("capacities (II)"));
         });
+    ui.weak(
+        egui::RichText::new(
+            "drag or scroll ⇄ to move through time · pinch to zoom · double-click to fit all",
+        )
+        .small(),
+    );
 }
 
 /// A feed of the most recent *consequential* ticks (skipping quiet ones), newest first —
