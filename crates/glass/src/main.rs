@@ -128,6 +128,18 @@ fn familiar_bin() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("familiar"))
 }
 
+/// Speak text aloud — the speech channel, minimally real. macOS ships `say`; elsewhere
+/// this is a no-op for now (the button stays, the capability grows). Best-effort and
+/// detached, so a missing voice or a long sentence never blocks the Glass.
+fn speak(text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    // keep it bounded — speak the answer, not an essay
+    let line: String = text.chars().take(600).collect();
+    let _ = Command::new("say").arg(line).spawn();
+}
+
 /// Run `familiar daemon <sub> --data-dir <dir>` and return its trimmed output.
 fn daemon_cmd(dir: &Path, sub: &str) -> String {
     match Command::new(familiar_bin())
@@ -181,7 +193,12 @@ impl Glass {
     fn refresh_daemon(&mut self) {
         self.daemon_status = daemon_cmd(&self.data_dir, "status");
     }
-    /// Record Ian's free-form request; the cycle answers it on the next tick.
+    /// Record Ian's free-form request and get it answered — promptly, with everything the
+    /// familiar has. Appending the request is not enough on its own: if the daemon is
+    /// stopped (or its next tick is up to a minute away), the question would just sit open.
+    /// So we also nudge a one-shot `familiar tick` in the background, which runs the full
+    /// answer pipeline — kernel facts, a saved tool, a freshly authored one, or the LLM —
+    /// and writes the answer. The 2s auto-refresh surfaces it in the Conversation panel.
     fn submit_request(&mut self) {
         let text = self.ask.trim();
         if text.is_empty() {
@@ -199,7 +216,20 @@ impl Glass {
             },
         );
         self.ask.clear();
+        self.kick_answer();
         self.refresh();
+    }
+    /// Nudge a one-shot tick in the background so an open request is answered now, whether
+    /// or not the daemon is running. Detached so a slow LLM call never freezes the window.
+    fn kick_answer(&self) {
+        let dir = self.data_dir.clone();
+        std::thread::spawn(move || {
+            let _ = Command::new(familiar_bin())
+                .arg("tick")
+                .arg("--data-dir")
+                .arg(&dir)
+                .output();
+        });
     }
     /// Record Ian's reaction to an answer. "refine" prefills the ask box with the original
     /// request so he can sharpen it and ask again — the answer is refined toward what he
@@ -210,6 +240,99 @@ impl Glass {
             self.ask = text;
         }
         self.refresh();
+    }
+    /// The conversation transcript — every ask paired with the familiar's answer, newest
+    /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
+    /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
+    fn conversation_panel(&mut self, ui: &mut egui::Ui) {
+        // Pair each answer with the text of the request it answered. Cloned up front so the
+        // egui closure doesn't hold a borrow of self while the buttons want to mutate it.
+        let items: Vec<(Answer, Option<String>)> = self
+            .snapshot
+            .answers
+            .iter()
+            .rev()
+            .take(30)
+            .map(|a| {
+                let q = self
+                    .snapshot
+                    .requests
+                    .iter()
+                    .find(|r| r.id == a.request_id)
+                    .map(|r| r.text.clone());
+                (a.clone(), q)
+            })
+            .collect();
+
+        // An action chosen this frame, applied after the closure (which borrows self).
+        enum Act {
+            Speak(String),
+            Feedback(String, &'static str, Option<String>),
+        }
+        let mut act: Option<Act> = None;
+
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(24, 28, 36))
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("💬 Conversation")
+                        .strong()
+                        .color(egui::Color32::from_rgb(150, 200, 255)),
+                );
+                if items.is_empty() {
+                    ui.weak("(ask the familiar something above — its answers land here)");
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(300.0)
+                    .id_salt("conversation")
+                    .show(ui, |ui| {
+                        for (a, q) in &items {
+                            ui.group(|ui| {
+                                if let Some(q) = q {
+                                    ui.label(
+                                        egui::RichText::new(format!("🔮 you asked: {q}"))
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(150, 200, 255)),
+                                    );
+                                }
+                                ui.horizontal(|ui| {
+                                    confidence_badge(ui, a.confidence);
+                                    if !a.evidence.is_empty() {
+                                        ui.weak(format!("· {}", a.evidence));
+                                    }
+                                });
+                                ui.label(&a.body);
+                                ui.horizontal(|ui| {
+                                    if ui.button("🔊 speak").clicked() {
+                                        act = Some(Act::Speak(a.body.clone()));
+                                    }
+                                    if a.feedback.is_empty() {
+                                        if ui.button("👍 helpful").clicked() {
+                                            act =
+                                                Some(Act::Feedback(a.id.clone(), "helpful", None));
+                                        }
+                                        if ui.button("✍ refine").clicked() {
+                                            act = Some(Act::Feedback(
+                                                a.id.clone(),
+                                                "refine",
+                                                q.clone(),
+                                            ));
+                                        }
+                                    } else {
+                                        ui.weak(format!("✓ you marked this: {}", a.feedback));
+                                    }
+                                });
+                            });
+                        }
+                    });
+            });
+
+        match act {
+            Some(Act::Speak(text)) => speak(&text),
+            Some(Act::Feedback(id, kind, prefill)) => self.give_feedback(&id, kind, prefill),
+            None => {}
+        }
     }
     /// Record Ian's reply as an observation — the observer's input channel (the one
     /// place the GUI writes; the familiar's own truth stays read-only).
@@ -409,22 +532,14 @@ impl eframe::App for Glass {
                 }
             }
 
-            // --- ask the familiar: a free-form request, answered known-vs-probable ---
+            // --- ask the familiar: a free-form request, answered with everything it has ---
             ui.add_space(6.0);
-            let latest_answer = self.snapshot.answers.last().cloned();
             let pending_requests = self
                 .snapshot
                 .requests
                 .iter()
                 .filter(|r| r.status == "open")
                 .count();
-            let asked_text = latest_answer.as_ref().and_then(|a| {
-                self.snapshot
-                    .requests
-                    .iter()
-                    .find(|r| r.id == a.request_id)
-                    .map(|r| r.text.clone())
-            });
             egui::Frame::group(ui.style())
                 .fill(egui::Color32::from_rgb(26, 30, 40))
                 .show(ui, |ui| {
@@ -449,35 +564,18 @@ impl eframe::App for Glass {
                     });
                     if pending_requests > 0 {
                         ui.weak(format!(
-                            "⏳ {pending_requests} request(s) pending — answered on the next tick"
+                            "⏳ {pending_requests} pending — the familiar is working on it; the \
+                             answer appears in the Conversation below"
                         ));
                     }
-                    if let Some(a) = latest_answer {
-                        ui.separator();
-                        if let Some(q) = &asked_text {
-                            ui.weak(format!("you asked: {q}"));
-                        }
-                        ui.horizontal(|ui| {
-                            confidence_badge(ui, a.confidence);
-                            if !a.evidence.is_empty() {
-                                ui.weak(format!("· grounded in: {}", a.evidence));
-                            }
-                        });
-                        ui.label(&a.body);
-                        if a.feedback.is_empty() {
-                            ui.horizontal(|ui| {
-                                if ui.button("👍 helpful").clicked() {
-                                    self.give_feedback(&a.id, "helpful", None);
-                                }
-                                if ui.button("✍ refine").clicked() {
-                                    self.give_feedback(&a.id, "refine", asked_text.clone());
-                                }
-                            });
-                        } else {
-                            ui.weak(format!("✓ you marked this: {}", a.feedback));
-                        }
-                    }
                 });
+
+            // --- the Conversation: the place the familiar answers, in text and (on request)
+            // aloud. Every ask is paired with its answer, newest first — wherever the
+            // answer came from (verified facts, a reused tool, a freshly written one, the
+            // LLM), it lands here. ---
+            ui.add_space(6.0);
+            self.conversation_panel(ui);
 
             // --- the metabolism at work: a signals chart + a feed of recent actions ---
             ui.add_space(6.0);
