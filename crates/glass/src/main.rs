@@ -1686,7 +1686,6 @@ impl eframe::App for Glass {
             .show(ctx, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             theme::on_screen(ui); // the center is a dark screen — text is bright on it
-            ui.set_width(ui.available_width()); // fill the column; no left/right gap
             if let Some(err) = &self.snapshot.error {
                 ui.colored_label(theme::RED, err);
             }
