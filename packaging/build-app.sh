@@ -34,8 +34,14 @@ fi
 
 echo "==> assembling $APP"
 rm -rf "$APP"
-mkdir -p "$MACOS"
+mkdir -p "$MACOS" "$APP/Contents/Resources"
 cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
+# The app icon (the glassy marble). Committed; regenerate with packaging/make-icns.sh.
+if [[ -f "$ROOT/packaging/AppIcon.icns" ]]; then
+  cp "$ROOT/packaging/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+else
+  echo "   (no AppIcon.icns — Finder will show a generic icon; run packaging/make-icns.sh)" >&2
+fi
 for b in "${BINS[@]}"; do
   if [[ -x "$ROOT/target/release/$b" ]]; then
     cp "$ROOT/target/release/$b" "$MACOS/$b"
