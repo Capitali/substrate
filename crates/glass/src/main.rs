@@ -1389,12 +1389,13 @@ impl Glass {
                                         .color(egui::Color32::from_rgb(150, 200, 255)),
                                 );
                             }
-                            ui.horizontal(|ui| {
-                                confidence_badge(ui, a.confidence);
-                                if !a.evidence.is_empty() {
-                                    ui.weak(format!("· {}", a.evidence));
-                                }
-                            });
+                            confidence_badge(ui, a.confidence);
+                            // Evidence on its own line so it wraps to the column — inside a
+                            // horizontal layout egui gives it infinite width and it never wraps,
+                            // running past the divider into the right column.
+                            if !a.evidence.is_empty() {
+                                ui.weak(format!("· {}", a.evidence));
+                            }
                             ui.label(&a.body);
                             ui.horizontal(|ui| {
                                 if ui.button("🔊 speak").clicked() {
@@ -1408,10 +1409,12 @@ impl Glass {
                                         act =
                                             Some(Act::Feedback(a.id.clone(), "refine", q.clone()));
                                     }
-                                } else {
-                                    ui.weak(format!("✓ you marked this: {}", a.feedback));
                                 }
                             });
+                            // The feedback note wraps on its own line, for the same reason.
+                            if !a.feedback.is_empty() {
+                                ui.weak(format!("✓ you marked this: {}", a.feedback));
+                            }
                         });
                     }
                 });
