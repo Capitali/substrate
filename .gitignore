@@ -1,4 +1,5 @@
 /target
+/dist
 **/*.rs.bk
 # Runtime state — derived/rebuildable, not source. (Renamed from substrate_data.)
 /familiar_data
