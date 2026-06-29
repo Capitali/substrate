@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use egui_plot::{Line, Plot, PlotPoints};
 use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::boundary::{self, Boundary};
 use familiar_kernel::candidate::{self, Candidate};
@@ -1211,8 +1210,8 @@ impl Glass {
             if !status.is_empty() {
                 ui.label(
                     egui::RichText::new(status)
-                        .font(theme::mono(9.0))
-                        .color(theme::SCREEN_DIM),
+                        .font(theme::mono(9.5))
+                        .color(theme::SCREEN_TEXT),
                 );
             }
             ui.horizontal_wrapped(|ui| {
@@ -1234,10 +1233,8 @@ impl Glass {
     /// The right column (T2/T3): vital signs, the Law III gates, the current theory, and the
     /// activity ticker. Ink section labels on beige; the content sits on dark screens.
     fn right_column(&mut self, ui: &mut egui::Ui) {
-        Self::rail_label(ui, "VITAL SIGNS · LAST 10 MIN");
-        metabolism_box(ui, &self.snapshot.ticks, now_secs());
-
-        ui.add_space(12.0);
+        // (The vital-signs over-time graph is gone — it was the same three signals the
+        // left-rail LED meters already show, just as a trend; the meters carry it.)
         Self::rail_label(ui, "CAPABILITY · LAW III — YOUR GATES");
         theme::instrument_screen().show(ui, |ui| {
             theme::on_screen(ui);
@@ -1245,28 +1242,73 @@ impl Glass {
         });
 
         ui.add_space(12.0);
-        Self::rail_label(ui, "CURRENT THEORY");
+        Self::rail_label(ui, "CURRENT THEORY · WHAT IT'S WORKING");
         let theory = self
             .snapshot
             .threads
             .iter()
             .rev()
             .find(|t| !t.theory.is_empty())
-            .map(|t| t.theory.clone());
+            .cloned();
+        // The candidate currently in work — newest first, prefer one still being pursued.
+        let cand = self
+            .snapshot
+            .candidates
+            .iter()
+            .rev()
+            .find(|c| matches!(c.status.as_str(), "generated" | "mutated" | "observing"))
+            .or_else(|| self.snapshot.candidates.last())
+            .cloned();
         theme::instrument_screen().show(ui, |ui| {
             theme::on_screen(ui);
-            match theory {
-                Some(t) => ui.label(
-                    egui::RichText::new(format!("💭 {t}"))
-                        .font(theme::serif_italic(14.0))
-                        .color(theme::SCREEN_TEXT),
-                ),
-                None => ui.label(
-                    egui::RichText::new("(no theory yet — it forms as it interprets)")
-                        .font(theme::mono(9.5))
-                        .color(theme::SCREEN_FAINT),
-                ),
-            };
+            match &theory {
+                Some(t) => {
+                    ui.label(
+                        egui::RichText::new(format!("💭 {}", t.theory))
+                            .font(theme::serif_italic(14.0))
+                            .color(theme::SCREEN_BRIGHT),
+                    );
+                    if !t.direction.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("→ pursuing: {}", t.direction))
+                                .font(theme::mono(10.0))
+                                .color(theme::SCREEN_DIM),
+                        );
+                    }
+                }
+                None => {
+                    ui.label(
+                        egui::RichText::new("(no theory yet — it forms as it interprets)")
+                            .font(theme::mono(9.5))
+                            .color(theme::SCREEN_FAINT),
+                    );
+                }
+            }
+            if let Some(c) = &cand {
+                ui.add_space(5.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "WORKING {} · gen {} · {}",
+                        c.id, c.generation, c.status
+                    ))
+                    .font(theme::mono_semi(10.0))
+                    .color(theme::CYAN),
+                );
+                if !c.hypothesis.is_empty() {
+                    ui.label(
+                        egui::RichText::new(&c.hypothesis)
+                            .font(theme::serif(13.0))
+                            .color(theme::SCREEN_TEXT),
+                    );
+                }
+                if !c.mutation_reason.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!("⤳ {} — changed {}", c.mutation_reason, c.changed_traits))
+                            .font(theme::mono(9.5))
+                            .color(theme::AMBER),
+                    );
+                }
+            }
         });
 
         ui.add_space(12.0);
@@ -1491,17 +1533,23 @@ impl eframe::App for Glass {
                             .color(theme::INK_LABEL),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let dot = if running { theme::GREEN_DEEP } else { theme::RED_DEEP };
-                        ui.label(
-                            egui::RichText::new(if self.daemon_status.is_empty() {
-                                "stopped".to_string()
-                            } else {
-                                self.daemon_status.clone()
-                            })
-                            .font(theme::mono(10.5))
-                            .color(dot),
-                        );
-                        ui.label(egui::RichText::new("●").font(theme::mono(9.0)).color(dot));
+                        let dot = if running { theme::GREEN } else { theme::RED };
+                        let status = if self.daemon_status.is_empty() {
+                            "stopped".to_string()
+                        } else {
+                            self.daemon_status.clone()
+                        };
+                        // status on a dark chip — bright text on navy, unmistakably readable
+                        theme::instrument_screen()
+                            .inner_margin(egui::Margin::symmetric(8, 3))
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("●").font(theme::mono(9.0)).color(dot));
+                                ui.label(
+                                    egui::RichText::new(status)
+                                        .font(theme::mono(10.0))
+                                        .color(theme::SCREEN_BRIGHT),
+                                );
+                            });
                         ui.add_space(6.0);
                         ui.label(
                             egui::RichText::new("Local · No network")
@@ -1618,6 +1666,7 @@ impl eframe::App for Glass {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("rightcol-scroll")
+                    .auto_shrink([false, false])
                     .show(ui, |ui| self.right_column(ui));
             });
 
@@ -1625,7 +1674,7 @@ impl eframe::App for Glass {
         egui::CentralPanel::default()
             .frame(theme::panel(theme::NAVY).inner_margin(egui::Margin::same(16)))
             .show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             theme::on_screen(ui); // the center is a dark screen — text is bright on it
             if let Some(err) = &self.snapshot.error {
                 ui.colored_label(theme::RED, err);
@@ -1847,85 +1896,12 @@ impl eframe::App for Glass {
         // gentle auto-refresh so the window tracks the familiar as it runs
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
     }
-}
 
-/// A line chart of the law-signals over the recent ticks — the familiar's vital signs
-/// over time, so liveness is visible at a glance (not just a single current number).
-/// A small, fixed vital-signs box pinned to the upper-right. It always shows the **last 10
-/// minutes** of the law-signals — no scrolling, no zooming, no interaction. The x-axis is
-/// the fixed 10-minute window; the y-axis auto-fits the min/max of what's actually moving,
-/// so small changes are legible without manual zoom.
-fn metabolism_box(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
-    const WINDOW_SECS: i64 = 600; // last 10 minutes
-    let c_service = egui::Color32::from_rgb(120, 210, 150);
-    let c_presence = egui::Color32::from_rgb(120, 175, 255);
-    let c_capacities = egui::Color32::from_rgb(230, 185, 100);
-    egui::Frame::group(ui.style())
-        .fill(egui::Color32::from_rgb(20, 24, 32))
-        .show(ui, |ui| {
-            ui.set_width(288.0);
-            ui.label(
-                egui::RichText::new("🫀 metabolism · last 10 min")
-                    .small()
-                    .color(egui::Color32::from_rgb(150, 165, 190)),
-            );
-            let recent: Vec<&ActivityTick> =
-                ticks.iter().filter(|t| now - t.ts <= WINDOW_SECS).collect();
-            if recent.len() < 2 {
-                ui.add_space(10.0);
-                ui.weak("(warming up — the signals appear after a few ticks)");
-                ui.add_space(10.0);
-                return;
-            }
-            // x = minutes ago (negative), so the window reads -10 … 0
-            let series = |sel: fn(&ActivityTick) -> f64| -> PlotPoints {
-                recent
-                    .iter()
-                    .map(|t| [(t.ts - now) as f64 / 60.0, sel(t)])
-                    .collect()
-            };
-            // Clean sparkline: no floating legend, no axis-number clutter — the graph is the
-            // graph. The key (with live values) sits below, outside the plotting space.
-            Plot::new("metabolism")
-                .height(116.0)
-                .show_axes([false, false])
-                .show_grid([false, false])
-                .show_x(false)
-                .show_y(false)
-                .include_x(-10.0)
-                .include_x(0.0)
-                .allow_drag(false)
-                .allow_zoom(false)
-                .allow_scroll(false)
-                .allow_boxed_zoom(false)
-                .set_margin_fraction(egui::vec2(0.01, 0.14))
-                .show(ui, |p| {
-                    p.line(Line::new(series(|t| t.service)).color(c_service).width(1.8));
-                    p.line(
-                        Line::new(series(|t| t.presence))
-                            .color(c_presence)
-                            .width(1.8),
-                    );
-                    p.line(
-                        Line::new(series(|t| t.capacities))
-                            .color(c_capacities)
-                            .width(1.8),
-                    );
-                });
-            // the key, outside the graph — a colour swatch and the current value
-            let last = recent[recent.len() - 1];
-            let key = |ui: &mut egui::Ui, color: egui::Color32, name: &str, v: f64| {
-                ui.colored_label(color, "▬");
-                ui.label(egui::RichText::new(format!("{name} {v:.2}")).small());
-                ui.add_space(6.0);
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 3.0;
-                key(ui, c_service, "service", last.service);
-                key(ui, c_presence, "presence", last.presence);
-                key(ui, c_capacities, "capacities", last.capacities);
-            });
-        });
+    /// Clear any area the panels don't cover to the chassis colour — never black. (egui
+    /// fills the window with the panels, but this guarantees no dark gap on a fast resize.)
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::CHASSIS_DARK.to_normalized_gamma_f32()
+    }
 }
 
 /// A bounded scroll region that only scrolls once the human has *clicked into it* — so
