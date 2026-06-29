@@ -13,6 +13,35 @@ this file is the human-readable summary.
 > [claim→evidence table](docs/05-validation-and-results.md#claim--evidence).
 
 ### Added
+- **The eye — gated camera capture (`crates/vision`):** discovery (which cameras exist) was
+  always permitted; now *watching* exists too. `capture_frame` grabs a still through the
+  bundled `familiar-eye` Swift/AVFoundation helper, and the daemon's gated tick refreshes
+  `<data>/eye/latest.jpg` rate-limited (one frame/60s) — only while the boundary's
+  `allow_camera` is open, fail-closed otherwise — recording once that the familiar has
+  working sight. Keeping the camera call in a tiny bundled helper means the macOS camera grant
+  attaches to `Familiar.app`, not a terminal. *Validated by real-world operation* (a frame
+  captured and observed on a live host).
+- **The macOS installer — a signed, notarized `Familiar.app` + `.pkg`:** `packaging/` builds
+  the four binaries (`marble`, `glass`, `familiar`, `familiar-eye`) into a hardened-runtime,
+  Developer-ID-signed, **notarized + stapled** bundle and installer. The `.pkg` drops the app
+  in `/Applications` and a postinstall installs two launchd agents — the daemon (KeepAlive)
+  and the marble (RunAtLoad) — so the familiar runs at boot with the menu-bar marble as the
+  way in. Data moves to `~/Library/Application Support/Familiar/`. *Validated by real-world
+  operation* (`spctl`-accepted: source = Notarized Developer ID). See
+  [packaging/README.md](packaging/README.md).
+- **The marble breathes; a Finder app icon.** The menu-bar marble now gently pulses (a soft
+  glow swelling ~2.6s per breath) while the familiar is alive, steady-dim when asleep; the
+  bundle ships an `AppIcon.icns` of the same glassy marble. The marble also launches the
+  *freshest* `glass`/`familiar` (the build tree it came from, not a frozen install snapshot),
+  so a rebuild is reflected immediately. *Validated by real-world operation.*
+- **Grounding fix — the familiar no longer forgets its cameras.** `grounding_facts` (the
+  answer path) now includes camera discovery, so a question about the camera is grounded in
+  the cameras actually perceived — closing a bug where it answered "no camera" from the
+  network-interface list alone.
+- **Glass — resizable columns, wrapped text, a dark Workshop.** The left rail and right column
+  resize independently (draggable dividers); conversation evidence/feedback wrap at the column
+  edge instead of running past it; the Workshop popout is framed dark so its bright labels read
+  (the light/light–dark/dark contrast rule).
 - **Law III doctrine — availability is not authorization (the guard's reason model):**
   the constitution gains two corollaries ([SOUL.md](docs/SOUL.md)) — *availability is not
   authorization* (technical reach is power, never permission) and *permission does not

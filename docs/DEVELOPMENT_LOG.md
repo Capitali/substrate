@@ -6,6 +6,59 @@ the latest entries here.
 
 Each entry: what changed, why, checks run, what the next developer should know.
 
+## 2026-06-29 — The eye, the installer, and a breathing marble
+
+The familiar gained sight, a way to ship, and a little life in the menu bar.
+
+### What changed
+
+- **The eye (`crates/vision`).** Added `capture_frame` — the gated *watching* act the crate
+  had reserved for "later bricks." It shells out to **`familiar-eye`**, a ~120-line bundled
+  Swift/AVFoundation helper (single still → JPEG, hard 8s timeout, exposure-settle frame-skip)
+  compiled best-effort by a new `build.rs` (no-op off macOS / without `swiftc`, so Linux CI
+  stays green). The daemon's gated driver (`tick_gated`) calls a new `watch_camera`: when
+  `allow_camera` is open it refreshes `<data>/eye/latest.jpg`, rate-limited to one frame per
+  60s, recording once (constant triple) that the familiar has working sight.
+- **Grounding fix.** `grounding_facts` now includes `vision::discover`, so camera questions
+  are grounded in perceived cameras — the familiar had been answering "no camera" from the
+  network-interface list because the eye was perceived each tick but never reached the answer
+  fact set.
+- **Packaging (`packaging/`).** New: `Info.plist` (LSUIElement accessory, `NSCameraUsageDescription`),
+  `entitlements.plist` (hardened-runtime camera), `build-app.sh` (assemble + sign), the
+  CoreGraphics `make-icon.swift`/`make-icns.sh` → committed `AppIcon.icns`, `build-pkg.sh`
+  (pkgbuild/productbuild + notarize + staple), and `scripts/postinstall` (per-user data dir +
+  two launchd agents: daemon KeepAlive, marble RunAtLoad). Signing/notarization are env-gated
+  (`APP_IDENTITY`, `INSTALLER_IDENTITY`, `NOTARY_PROFILE`).
+- **The marble.** Now launches the *freshest* sibling binaries (its compile-time build tree
+  vs. the stable install copy, by mtime) so a rebuild shows up immediately; `familiar-eye`
+  added to its `STABLE_BINS`. And it **breathes**: `marble_icon` gained a `glow` (0..1) the
+  event loop drives on a ~120ms frame while the daemon is alive (steady-dim asleep).
+- **Glass.** Resizable left/right columns; conversation evidence/feedback moved out of
+  `ui.horizontal` so they wrap at the column edge; Workshop popout framed navy (dark/dark).
+
+### Why
+
+The owner asked the familiar to use the onboard camera as an observational source and to ship
+as a signed, boot-persistent app with the menu-bar marble as the front door. The eye is the
+first watching brick (recognition is still future); the helper-in-a-bundle pattern is what
+makes the camera grant attach to `Familiar.app` rather than a terminal.
+
+### Checks run
+
+- `cargo build`, `cargo test` (113 passing), `cargo clippy` clean on touched crates.
+- Live: `familiar-eye` captured a real 1280×720 frame; `familiar tick` ran the full daemon
+  path → `eye/latest.jpg` + a `host watched camera-frame` observation.
+- Live: `Familiar.app` and `Familiar-0.1.0.pkg` built with Developer ID, **notarized
+  (Accepted) and stapled**; `spctl` accepts both (source = Notarized Developer ID).
+
+### Next
+
+- **Daemon → camera TCC attribution** on a *fresh signed install* — verify the grant attaches
+  to `Familiar.app` (not the bare binary) once installed from the `.pkg`.
+- **Recognition** — turn frames into observations about *what* was seen (faces/gestures/
+  objects), still gated. **Voice** — the mic counterpart (`NSMicrophoneUsageDescription` +
+  audio entitlement) for the text+video+voice interface the owner described.
+
 ## 2026-06-24 — The marble: a menu-bar presence that opens the Glass
 
 The familiar now has a glassy blue marble in the macOS menu bar; click it to open the

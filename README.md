@@ -43,17 +43,33 @@ be narrowed — has its own standout page: [`docs/HUMANITY.md`](docs/HUMANITY.md
 
 ## Install & run
 
-> There is **no packaged installer yet** (a signed macOS `.app`/`.dmg` and per-arch Linux
-> builds are planned — see [docs/TODO-linux.md](docs/TODO-linux.md) and
-> [docs/design-orientation-and-mesh.md](docs/design-orientation-and-mesh.md)). For now you
-> build from source. macOS is the primary target; a Linux **desktop** also works (a headless
-> Raspberry Pi is on the roadmap, not yet supported).
+### macOS — the installer (recommended)
+
+The familiar ships as a signed, **notarized** macOS installer that sets everything up to run
+at boot: **`Familiar-<version>.pkg`**. Double-click it; it installs `Familiar.app` to
+`/Applications` and configures two per-user login agents —
+
+- the **daemon** (`io.river.familiar.daemon`, KeepAlive) — the always-on metabolism, and
+- the **marble** (`io.river.familiar.marble`, RunAtLoad) — the glassy blue marble in the
+  menu bar that **breathes** while the familiar is alive and is your way into the Glass.
+
+Data lives per-user in `~/Library/Application Support/Familiar/`. The first time the familiar
+watches through the camera (only when you open the `allow_camera` gate) macOS asks for camera
+permission — granted to `Familiar.app` itself. To build the `.pkg` (or notarize a release),
+see [`packaging/README.md`](packaging/README.md).
+
+### Build from source
+
+macOS is the primary target; a Linux **desktop** also works (a headless Raspberry Pi is on the
+roadmap — see [docs/TODO-linux.md](docs/TODO-linux.md)).
 
 **Prerequisites**
 
 - A Rust toolchain — [`rustup`](https://rustup.rs).
 - `python3` on `PATH` — the LLM adapter (a small reference script the app installs for you)
   uses it to call the model provider. Already present on most macs and Linux desktops.
+- *(macOS, optional)* the Xcode command-line tools (`swiftc`) — only needed to build the
+  `familiar-eye` camera helper and the app icon; the core builds with Rust alone.
 
 **Quickstart**
 
@@ -67,10 +83,10 @@ Then, in the Glass window:
 
 1. **Introduce yourself.** On first launch the familiar asks your name (it keeps it; it
    does not assume one). Type it, confirm, and it greets you.
-2. **Give it a mind.** In the **🔌 Connect** panel, click **Get a key →** (OpenRouter is the
-   simplest — one key is enough), paste the key, press **Connect**, then **Test connection**.
-   This installs the adapter, stores the key locally (`familiar_data/llm/key.env`, never
-   committed), and opens only the `allow_llm` gate.
+2. **Give it a mind.** In the **🔌 Connect** panel, click **Get a key →** (Google Gemini is
+   the place to start — one key is enough; Cerebras is optional failover), paste the key,
+   press **Connect**, then **Test connection**. This installs the adapter, stores the key
+   locally (`familiar_data/llm/key.env`, never committed), and opens only the `allow_llm` gate.
 3. **Start the metabolism.** Click **▶ Start** in the header (or run the daemon, below). The
    familiar begins to sense, theorize, and serve.
 4. **Use it.** Answer — or **Dismiss** — the familiar's questions (it begins with
@@ -106,8 +122,15 @@ inherit**, under the human-owned boundary it can never widen. It runs as a daemo
 (installable under launchd), and the Glass carries the interaction channel —
 the familiar asks ("What do you need most today?"), the human answers.
 
-Outward reach (network, LLM, executing generated code) is each a separate gate only a
-human opens. See [CHANGELOG.md](CHANGELOG.md) and [docs/07-roadmap.md](docs/07-roadmap.md).
+It now also **watches**: with the `allow_camera` gate open, the daemon captures still
+frames through its eye (a bundled AVFoundation helper) and records that it saw. And it
+**ships**: a signed, notarized macOS installer (`Familiar.app` + the breathing menu-bar
+marble) that sets the whole thing up to run at boot — see [Install & run](#install--run)
+and [`packaging/README.md`](packaging/README.md).
+
+Outward reach (network, LLM, executing generated code, **watching through the camera**) is
+each a separate gate only a human opens. See [CHANGELOG.md](CHANGELOG.md) and
+[docs/07-roadmap.md](docs/07-roadmap.md).
 
 Every claim above is traceable. The maturity of each piece follows one
 [status convention](docs/07-roadmap.md#status-convention), and each component maps to its

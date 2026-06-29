@@ -54,6 +54,8 @@ crates/
     mutation.rs pattern_memory.rs lineage.rs   suppression + ancestry    [unit]
     thread.rs           a thread = question + theory (Interpret)         [unit]
   sense/    familiar-sense (lib) — perceives the host                    [unit]
+  vision/   familiar-vision (lib) — the eye: camera discovery (always)   [unit]
+                                    + gated frame capture (familiar-eye)  [live]
   cycle/    familiar-cycle (lib) — the metabolism (one tick)             [live]
   exec/     familiar-exec (lib) — the sandboxed runner                   [unit]
   llm/      familiar-llm (lib) — the LLM seam (boundary-gated)           [unit/live]
@@ -61,6 +63,20 @@ crates/
   glass/    familiar-glass (bin) — the Glass (egui GUI, primary UI)      [live]
   marble/   familiar-marble (bin) — the menu-bar presence (macOS)        [live]
 ```
+
+The eye is split like the boundary asks: **discovery** (which cameras exist) is always
+permitted, but **watching** (capturing a frame) is gated by `allow_camera`, fail-closed, and
+runs only in the daemon's gated tick. Capture shells out to `familiar-eye`, a tiny bundled
+Swift/AVFoundation helper, so no heavy camera crate enters the trust surface and — packaged —
+the macOS camera grant attaches to `Familiar.app` rather than to a terminal.
+
+## Packaging (macOS)
+
+`packaging/` turns the four binaries (`marble`, `glass`, `familiar`, `familiar-eye`) into a
+signed, **notarized** `Familiar.app` and a `.pkg` installer that sets up the launchd agents
+(daemon + marble) at boot. The marble is the bundle's entry point and accessory face; the
+Glass is the window onto the familiar; `familiar-eye` is the eye. See
+[`../packaging/README.md`](../packaging/README.md).
 
 ## The cycle (the metabolism)
 

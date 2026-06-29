@@ -48,11 +48,19 @@ assertion alone.
   the unbounded daemon (`run --daemon`); and the **capacities signal** (Law II deepened
   — the comfortable-replacement alarm).
 - **Repository as evidence** — FAIR/IMRaD structure, ADRs, CI.
+- **The eye (`crates/vision`)** — camera *discovery* (always permitted) plus *gated* still
+  capture (`allow_camera`, fail-closed) via the bundled `familiar-eye` AVFoundation helper;
+  the daemon refreshes a latest frame on a rate limit and records that it watched.
+  *Validated by real-world operation* (a frame captured and observed on a live host).
+- **The macOS installer** — a signed, **notarized** `Familiar.app` + `.pkg` that installs the
+  app and the launchd agents (daemon KeepAlive + the breathing menu-bar marble at login).
+  *Validated by real-world operation* (notarized, stapled, `spctl`-accepted). See
+  [`../packaging/README.md`](../packaging/README.md).
 
 The full cycle now runs — observe → detect → generate (LLM-drafted) → test → score →
 select → inherit — under the law-signals (service, presence, capacities) and the
-human-owned boundary. Outward reach (network, LLM, execution) is each a separate gate
-only a human opens; the familiar never widens its own.
+human-owned boundary. Outward reach (network, LLM, execution, **watching through the
+camera**) is each a separate gate only a human opens; the familiar never widens its own.
 
 ## Next — sharpen and reach
 
