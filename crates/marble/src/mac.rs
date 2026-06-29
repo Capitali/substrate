@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -62,6 +62,39 @@ fn sibling(name: &str) -> PathBuf {
         .ok()
         .and_then(|p| p.parent().map(|d| d.join(name)))
         .unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// Where this marble's workspace builds `name` under a given Cargo profile. The path is
+/// baked in at compile time from the build location, so even the frozen login-item marble
+/// can find the live build tree it came from. (On a machine that only has the install,
+/// this path won't exist and is simply skipped.)
+fn workspace_target(profile: &str, name: &str) -> Option<PathBuf> {
+    // CARGO_MANIFEST_DIR is `<root>/crates/marble`; the workspace target dir is `<root>/target`.
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("target").join(profile).join(name))
+}
+
+/// Resolve a sibling binary the marble drives (`glass`, `familiar`) to the copy that was
+/// built most recently. Candidates: the sibling next to the running marble (the stable
+/// install that survives `cargo clean`) and this marble's own build tree (so a fresh
+/// `cargo build` is launched immediately, instead of the snapshot copied at install time).
+/// Whichever was modified most recently wins; if none can be stat'd, fall back to sibling.
+fn resolve_bin(name: &str) -> PathBuf {
+    let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut candidates = vec![sibling(name)];
+    candidates.extend(["release", "debug"].iter().filter_map(|p| workspace_target(p, name)));
+
+    let mut best: Option<(SystemTime, PathBuf)> = None;
+    for path in candidates {
+        if let Some(t) = mtime(&path) {
+            if best.as_ref().map_or(true, |(bt, _)| t > *bt) {
+                best = Some((t, path));
+            }
+        }
+    }
+    best.map(|(_, p)| p).unwrap_or_else(|| sibling(name))
 }
 
 // --- the running marble ---------------------------------------------------------
@@ -172,7 +205,7 @@ impl App {
                 return;
             }
         }
-        let exe = sibling("glass");
+        let exe = resolve_bin("glass");
         match Command::new(&exe).arg("--data-dir").arg(&self.data).spawn() {
             Ok(c) => self.glass = Some(c),
             Err(e) => eprintln!("marble: could not open the Glass ({}): {e}", exe.display()),
@@ -180,7 +213,7 @@ impl App {
     }
 
     fn daemon(&self, sub: &str) {
-        let exe = sibling("familiar");
+        let exe = resolve_bin("familiar");
         let _ = Command::new(&exe)
             .args(["daemon", sub, "--data-dir", &self.data])
             .status();
