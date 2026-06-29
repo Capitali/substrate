@@ -577,7 +577,28 @@ impl Glass {
                     let stdout = String::from_utf8_lossy(&o.stdout);
                     let stderr = String::from_utf8_lossy(&o.stderr);
                     if stdout.contains("REFUSE") {
-                        "✗ refused — the boundary's allow_llm is still closed".to_string()
+                        // A refusal has several distinct causes — don't blame the boundary
+                        // for what's really a missing adapter or a provider failure.
+                        if stdout.contains("boundary") {
+                            "✗ refused — the LLM gate (allow_llm) is closed".to_string()
+                        } else if stdout.contains("install the adapter") {
+                            "✗ the adapter isn't installed — press Connect first".to_string()
+                        } else {
+                            // the adapter ran but every provider failed — surface the real
+                            // reason (e.g. HTTP 402 out of credits, or a missing key)
+                            let why = stderr
+                                .lines()
+                                .find(|l| {
+                                    l.contains("HTTP")
+                                        || l.contains("API_KEY")
+                                        || l.contains("rate-limited")
+                                        || l.contains(':')
+                                })
+                                .map(|l| l.trim())
+                                .filter(|l| !l.is_empty())
+                                .unwrap_or("the model provider rejected the call");
+                            format!("✗ provider error — {why}")
+                        }
                     } else if stdout.trim().is_empty() {
                         let why = stderr.lines().last().unwrap_or("").trim();
                         format!("✗ no response — {why}")
