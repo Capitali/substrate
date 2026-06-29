@@ -18,6 +18,11 @@ const DEFAULT_DATA_DIR: &str = "familiar_data";
 const PIDFILE: &str = "daemon.pid";
 /// How often the marble re-checks whether the familiar is alive, to keep its icon honest.
 const POLL: Duration = Duration::from_secs(3);
+/// While the familiar is alive the marble breathes: a gentle wake cadence (the animation
+/// frame) and the period of one full inhale→exhale. Asleep, it sits steady and dim, waking
+/// only on the slower [`POLL`] to notice when the familiar comes back.
+const PULSE_STEP: Duration = Duration::from_millis(120);
+const PULSE_PERIOD_SECS: f32 = 2.6;
 /// Binaries the marble copies to the stable path so the login item survives `cargo clean`.
 /// `familiar-eye` is the Swift camera helper (absent if the Swift toolchain wasn't present at
 /// build time); the copy loop skips any that don't exist, so that's harmless.
@@ -131,6 +136,9 @@ fn run_tray(args: &[String]) {
         ids: None,
         glass: None,
         daemon_up: false,
+        pulse: 0.0,
+        last_tick: Instant::now(),
+        last_check: Instant::now(),
     };
     let _ = event_loop.run_app(&mut app);
 }
@@ -150,6 +158,13 @@ struct App {
     glass: Option<Child>,
     /// Last observed daemon liveness — drives whether the marble is bright or dim.
     daemon_up: bool,
+    /// Phase of the breathing pulse, in radians (advanced by real elapsed time).
+    pulse: f32,
+    /// When the pulse was last advanced — so the breath keeps a steady wall-clock pace even
+    /// if a frame is late.
+    last_tick: Instant,
+    /// When liveness was last re-checked — paced by [`POLL`], not by every animation frame.
+    last_check: Instant,
 }
 
 impl App {
@@ -175,7 +190,7 @@ impl App {
         self.daemon_up = daemon_alive(&self.data);
         match TrayIconBuilder::new()
             .with_tooltip(tooltip(self.daemon_up))
-            .with_icon(marble_icon(32, !self.daemon_up))
+            .with_icon(marble_icon(32, !self.daemon_up, 0.0))
             .with_menu(Box::new(menu))
             .build()
         {
@@ -184,18 +199,57 @@ impl App {
         }
     }
 
-    /// Re-check the daemon and, only if its liveness changed, restyle the marble — bright
-    /// when the familiar is metabolizing, dim when it's asleep. Cheap enough to poll.
-    fn refresh_status(&mut self) {
+    /// Re-check the daemon and, if its liveness changed, update the tooltip. The icon itself
+    /// is repainted every frame by [`Self::animate`], so this only owns the state + tooltip.
+    fn check_liveness(&mut self) {
         let up = daemon_alive(&self.data);
-        if up == self.daemon_up {
-            return;
+        if up != self.daemon_up {
+            self.daemon_up = up;
+            if let Some(tray) = &self.tray {
+                let _ = tray.set_tooltip(Some(tooltip(up)));
+            }
         }
-        self.daemon_up = up;
+    }
+
+    /// Force an immediate liveness re-check and repaint — used right after a menu action
+    /// (start/stop) so the marble responds at once instead of on the next poll.
+    fn refresh_status(&mut self) {
+        self.check_liveness();
+        self.last_check = Instant::now();
+        self.paint();
+    }
+
+    /// One animation frame: advance the breath by real elapsed time, re-check liveness on the
+    /// slow [`POLL`] cadence, and repaint.
+    fn animate(&mut self) {
+        let dt = self.last_tick.elapsed().as_secs_f32();
+        self.last_tick = Instant::now();
+        self.pulse =
+            (self.pulse + dt / PULSE_PERIOD_SECS * std::f32::consts::TAU) % std::f32::consts::TAU;
+        if self.last_check.elapsed() >= POLL {
+            self.check_liveness();
+            self.last_check = Instant::now();
+        }
+        self.paint();
+    }
+
+    /// Paint the marble at the current breath: alive → a soft glow swelling 0→1→0; asleep →
+    /// steady and dim (no glow).
+    fn paint(&self) {
+        let glow = if self.daemon_up {
+            0.5 + 0.5 * self.pulse.sin()
+        } else {
+            0.0
+        };
         if let Some(tray) = &self.tray {
-            let _ = tray.set_icon(Some(marble_icon(32, !up)));
-            let _ = tray.set_tooltip(Some(tooltip(up)));
+            let _ = tray.set_icon(Some(marble_icon(32, !self.daemon_up, glow)));
         }
+    }
+
+    /// Schedule the next wake: the breathing cadence while alive, the slower poll while asleep.
+    fn schedule(&self, event_loop: &ActiveEventLoop) {
+        let next = if self.daemon_up { PULSE_STEP } else { POLL };
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + next));
     }
 
     /// Open the Glass — or, if one we launched is still up, raise it to the front rather
@@ -263,11 +317,13 @@ impl ApplicationHandler<UserEvent> for App {
             if self.open_on_start {
                 self.open_glass();
             }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + POLL));
+            self.last_tick = Instant::now();
+            self.last_check = Instant::now();
+            self.schedule(event_loop);
         } else if matches!(cause, StartCause::ResumeTimeReached { .. }) {
-            // The periodic wake: keep the marble's brightness in step with the daemon.
-            self.refresh_status();
-            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + POLL));
+            // The periodic wake: breathe, and keep liveness in step with the daemon.
+            self.animate();
+            self.schedule(event_loop);
         }
     }
 
@@ -291,9 +347,11 @@ impl ApplicationHandler<UserEvent> for App {
                 } else if m.id == ids.start {
                     self.daemon("start");
                     self.refresh_status();
+                    self.schedule(event_loop);
                 } else if m.id == ids.stop {
                     self.daemon("stop");
                     self.refresh_status();
+                    self.schedule(event_loop);
                 } else if m.id == ids.quit {
                     event_loop.exit();
                 }
@@ -311,8 +369,10 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 /// A small glassy blue marble: radial blue gradient (lighter at the core), a soft
 /// specular highlight up-left, and an anti-aliased rim — generated as raw RGBA so
 /// there's no image asset to ship. When `dim` (the familiar is asleep) the marble
-/// desaturates toward grey and goes translucent, so liveness reads at a glance.
-fn marble_icon(size: u32, dim: bool) -> Icon {
+/// desaturates toward grey and goes translucent, so liveness reads at a glance. `glow`
+/// (0..1) is the breath — it swells the core and highlight, so an alive marble visibly
+/// pulses; pass 0.0 for a still marble.
+fn marble_icon(size: u32, dim: bool, glow: f32) -> Icon {
     let n = (size * size * 4) as usize;
     let mut rgba = vec![0u8; n];
     let c = (size as f32 - 1.0) / 2.0;
@@ -329,17 +389,19 @@ fn marble_icon(size: u32, dim: bool) -> Icon {
             }
             let i = ((y * size + x) * 4) as usize;
             let t = (dist / r).clamp(0.0, 1.0); // 0 core .. 1 rim
-            let base_r = lerp(120.0, 18.0, t);
-            let base_g = lerp(185.0, 64.0, t);
-            let base_b = lerp(255.0, 150.0, t);
-            // specular highlight near (hx, hy)
+            // The breath lifts the inner glass most, fading to nothing at the rim.
+            let lift = glow * 36.0 * (1.0 - t);
+            let base_r = lerp(120.0, 18.0, t) + lift;
+            let base_g = lerp(185.0, 64.0, t) + lift;
+            let base_b = lerp(255.0, 150.0, t) + lift * 0.4;
+            // specular highlight near (hx, hy), itself brightened by the breath
             let hdx = x as f32 - hx;
             let hdy = y as f32 - hy;
             let hd = (hdx * hdx + hdy * hdy).sqrt();
             let spec = (1.0 - (hd / (r * 0.55)).clamp(0.0, 1.0)).powf(2.2);
-            let mut rr = (base_r + spec * 190.0).min(255.0);
-            let mut gg = (base_g + spec * 190.0).min(255.0);
-            let mut bb = (base_b + spec * 130.0).min(255.0);
+            let mut rr = (base_r + spec * (190.0 + glow * 70.0)).min(255.0);
+            let mut gg = (base_g + spec * (190.0 + glow * 70.0)).min(255.0);
+            let mut bb = (base_b + spec * (130.0 + glow * 50.0)).min(255.0);
             let mut edge = ((r - dist).clamp(0.0, 1.5)) / 1.5; // soft 1.5px rim
             if dim {
                 // Blend each channel toward a muted grey and drop the opacity — asleep.
