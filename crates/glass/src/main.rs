@@ -747,7 +747,9 @@ impl Glass {
                             ui.add(
                                 egui::TextEdit::singleline(field)
                                     .password(true)
-                                    .hint_text(hint)
+                                    .background_color(theme::CREAM)
+                                    .text_color(theme::INK)
+                                    .hint_text(egui::RichText::new(hint).color(theme::INK_MUTED))
                                     .desired_width(240.0),
                             );
                         });
@@ -891,7 +893,12 @@ impl Glass {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.name_entry)
                             .desired_width(280.0)
-                            .hint_text("the name you'd like to be called"),
+                            .background_color(theme::CREAM)
+                            .text_color(theme::INK)
+                            .hint_text(
+                                egui::RichText::new("the name you'd like to be called")
+                                    .color(theme::INK_MUTED),
+                            ),
                     );
                     if ui.button("Tell the familiar").clicked() {
                         let name = clean_name(&self.name_entry);
@@ -1727,7 +1734,9 @@ impl eframe::App for Glass {
                         egui::TextEdit::multiline(&mut self.response)
                             .desired_rows(2)
                             .desired_width(f32::INFINITY)
-                            .hint_text("type your answer…"),
+                            .background_color(theme::CREAM)
+                            .text_color(theme::INK)
+                            .hint_text(egui::RichText::new("type your answer…").color(theme::INK_MUTED)),
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Send").clicked() {
@@ -1770,7 +1779,12 @@ impl eframe::App for Glass {
                         egui::TextEdit::multiline(&mut self.ask)
                             .desired_rows(2)
                             .desired_width(f32::INFINITY)
-                            .hint_text("e.g. do I have any network-configuration issues?"),
+                            .background_color(theme::CREAM)
+                            .text_color(theme::INK)
+                            .hint_text(
+                                egui::RichText::new("e.g. do I have any network-configuration issues?")
+                                    .color(theme::INK_MUTED),
+                            ),
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Ask").clicked() {
