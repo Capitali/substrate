@@ -272,6 +272,79 @@ must make the eye **consensual, visible, local, and instantly stoppable**.
 
 ---
 
+## 11. Surfaces built since this brief (current state — design against these)
+
+The sections above describe the intended target. Since the first draft, the Glass has grown
+several surfaces that are **now live**; the redesign should treat these as the real material
+to make calm and beautiful, not as future ideas.
+
+### 11.1 Identity — "becoming familiar" (new, precedes everything)
+On a clean install the familiar does **not** assume who it serves. Its very first exchange is
+to **learn the person's name**: it asks, the human types it, and the familiar **reads it back
+to confirm** ("call you 'Ada'?") before keeping it — names are precise. It **never forgets**
+(a retained identity registry), and says so. Once known, a standing header line reads
+*"known to the familiar as <name> — names are not forgotten."* All of the familiar's own
+language now uses the learned name (or a neutral "the person I serve"), never a hard-coded
+one. **Design need:** a warm, unhurried first-contact moment (not a form); the name-ask
+replaces the question channel until identity is set, then the root question follows.
+*Future:* face / voice / pattern recognition will link identities across modalities
+(see `docs/design-orientation-and-mesh.md`) — design the identity surface to grow toward
+"recognized you" without becoming surveillance.
+
+### 11.2 Connecting a mind (onboarding) — 🔌 Connect
+A first-run panel where the human gives the familiar an LLM to think with. One key is
+enough; each provider has a **"Get a key →"** deep link; the key is pasted (masked), stored
+**locally only**, and a **Test connection** reports success or the *real* failure reason.
+Collapses to "✓ connected" once done. **Design need:** make this the calm second step after
+identity; it should feel like granting a capability, not configuring software.
+
+### 11.3 The question, coordinated — answer **or dismiss**
+Questions are no longer fired ad-hoc. The familiar keeps a **registry** of everything it
+might ask (the recurring root *"What do you need most today?"*, questions from its theories,
+clarifications for unmet needs) and surfaces **one at a time**, chosen under the Three Laws.
+The question channel now offers **Dismiss** beside **Send**: dismissing is honored and
+**tracked, never disposed** — an oft-dismissed question rests longer and returns when the
+familiar judges the moment right. **Design need:** Dismiss must feel as legitimate and
+dignified as answering (Law III — never coerced); the recurring root question should feel
+like a gentle return, not nagging.
+
+### 11.4 Conversation transcript
+Beyond the single latest answer, a **scrollable transcript** pairs each ask with its answer
+(newest first), each with its confidence, evidence, a **🔊 speak** button (now real on
+macOS), and 👍 / ✍ feedback. **Design need:** this is the heart of T1 — make it the calm
+centre, readable, with the speak affordance quiet until wanted.
+
+### 11.5 Self-pacing meter (Law II, visible)
+A small readout — **"LLM calls/tick: N ↑/↓/→"** — shows the familiar's self-tuned, presence-
+governed work budget: it pulls back (↓) when it's been heads-down too long (neglecting the
+person) and eases in (↑) when there's headroom. **Design need:** present as the familiar
+*regulating itself for the person's sake*, not as a performance gauge.
+
+### 11.6 The vital-signs box (replaces the full chart)
+The signals-over-time chart is now a **small fixed box pinned upper-right**: it always shows
+the **last 10 minutes**, the y-axis **auto-fits the data's own min/max**, and there is **no
+scroll/zoom/interaction**. The key sits **outside** the plot (a colour swatch + each signal's
+live value). **Design need:** keep it small, glanceable, and graph-forward — supersedes the
+"last ~120 points" full chart described in §4/T3.
+
+### 11.7 Law III — the boundary is now operable
+The six capability gates (network, llm, tool-install, execute, authored-execute, **camera**)
+plus the sandbox choice are now **toggles the human flips in the Glass** (not a hand-edited
+file). Flipping one writes the policy; the familiar reads and obeys but can never widen it.
+**Design need:** make this read clearly as *the human's lever* — calm, deliberate, with the
+sharpest gates (authored-execute, camera) visibly weightier. Supersedes the §4/T2 "read-only,
+human edits a policy file" note.
+
+### 11.8 Accessibility (hard requirements)
+- **Never dark text on a dark surface.** All text on the dark panels must be bright and
+  legible (this was a real defect — weak/grey print landed dark-on-dark).
+- **Adjustable text size.** A live **A− / A+** zoom scales the whole window and is remembered
+  across restarts. The design must stay legible and uncluttered across zoom levels, for aging
+  eyes.
+- High contrast and generous size are not optional polish here — they are requirements.
+
+---
+
 ### Appendix — full data dictionary (field-level, for accuracy)
 
 - **Observation**: `id`, `source` (sensor | observer | familiar), `actor`, `action`,
@@ -285,10 +358,19 @@ must make the eye **consensual, visible, local, and instantly stoppable**.
 - **Answer**: `id`, `request_id`, `body`, `confidence` (known|probable|unknown), `evidence`,
   `created_at`, `feedback` ("" | helpful | refine).
 - **Parameters**: `theorize_every_secs`, `interval_floor_secs`, `interval_ceiling_secs`,
-  `last_set_by` (observer|familiar|default).
+  `llm_calls_per_tick` (self-tuned per-tick LLM budget) + `llm_calls_trend` (-1|0|+1, the
+  ↓/→/↑ for the self-pacing meter), `last_set_by` (observer|familiar|default).
 - **Boundary (capability/safety)**: `phase`, `allow_network`, `allow_llm`,
-  `allow_tool_install`, `allow_execute`, `allow_authored_execute`, `sandbox_execution`,
-  `fs_read[]`, `fs_write[]`.
+  `allow_tool_install`, `allow_execute`, `allow_authored_execute`, `allow_camera`,
+  `sandbox_execution`, `fs_read[]`, `fs_write[]`. **Now editable in the Glass** (toggles);
+  the familiar reads and obeys but can never widen it.
+- **Identity**: `handle` (stable actor id, slug of the name), `name` (kept verbatim),
+  `relation` ("observer" now; room for lineage/status), `first_seen`, `last_seen`,
+  `interactions`. Plus a current-observer pointer. Retained — never forgotten.
+- **Question** (the coordination registry): `id` (the root is `q-root`), `text`, `origin`
+  (root|llm|need|observer), `created_at`, `times_asked`, `times_dismissed`, `last_asked`,
+  `last_dismissed`, `answered`, `dismiss_notes[]`. Surfaced one at a time under the Laws;
+  dismissals grow a rest period and recur, never disposed.
 - **Signals (derived)**: service (Law I), presence (Law II), capacities (Law II) — each a
   0–1 measure with an alarm flag.
 - **Corruption watch (derived)**: flagged actor names + a count (repeated rule-breakers).
