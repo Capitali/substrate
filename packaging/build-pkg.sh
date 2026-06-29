@@ -23,6 +23,17 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 [[ -d "$APP" ]] || { echo "build the app first: packaging/build-app.sh" >&2; exit 1; }
 chmod +x "$ROOT/packaging/scripts/postinstall"
 
+# Notarize + staple the app *before* packaging, so it launches even if the recipient is
+# offline the first time (the pkg is notarized too, below, for the install step itself).
+if [[ -n "$NOTARY_PROFILE" ]]; then
+  echo "==> notarizing the app (offline first-launch) — waits for Apple"
+  APPZIP="$ROOT/dist/Familiar-app.zip"
+  /usr/bin/ditto -c -k --keepParent "$APP" "$APPZIP"
+  xcrun notarytool submit "$APPZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  rm -f "$APPZIP"
+  xcrun stapler staple "$APP"
+fi
+
 echo "==> pkgbuild (component, with postinstall)"
 pkgbuild --component "$APP" \
   --install-location /Applications \
