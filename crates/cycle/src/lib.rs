@@ -504,7 +504,7 @@ fn content_words(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn analyze_offline(text: &str, facts: &[String]) -> (String, Confidence, String) {
+fn analyze_offline(text: &str, facts: &[String], llm_open: bool) -> (String, Confidence, String) {
     let words = content_words(text);
     // Match on whole tokens, not substrings, so "os" grounds to "os:Darwin" and not to
     // the "os" inside "host" — a crisp answer, still strictly from verified facts.
@@ -521,13 +521,18 @@ fn analyze_offline(text: &str, facts: &[String]) -> (String, Confidence, String)
         })
         .collect();
     if relevant.is_empty() {
-        (
-            "I don't have enough verified information to answer that yet. I won't guess — \
-             open the LLM seam, or ask me something my sensing can ground."
-                .to_string(),
-            Confidence::Unknown,
-            String::new(),
-        )
+        // Tell the truth about *why* there's no answer — don't say "open the LLM seam" when
+        // it's already open (the model was just unreachable), and don't pretend otherwise.
+        let msg = if llm_open {
+            "I don't have that grounded in what I've sensed, and I couldn't reach a model \
+             just now to reason further (it may be rate-limited — it recovers on its own). \
+             Try again in a moment, or ask me something my sensing can ground."
+        } else {
+            "I don't have enough verified information to answer that yet, and the LLM seam is \
+             closed so I can't reason beyond what I've sensed. Open it (Law III: the \
+             boundary's allow_llm) and I can do more — I still won't guess."
+        };
+        (msg.to_string(), Confidence::Unknown, String::new())
     } else {
         let body = format!(
             "From what I can verify on this host:\n{}",
@@ -777,6 +782,86 @@ fn run_tool(
     Ok((body, confidence, evidence))
 }
 
+/// The first http(s) URL in a request (trailing punctuation trimmed), if any.
+fn find_url(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|t| t.starts_with("http://") || t.starts_with("https://"))
+        .map(|t| {
+            t.trim_end_matches(['.', ',', ')', ']', '"', '>', '\''].as_slice())
+                .to_string()
+        })
+}
+
+/// Fetch a URL the human asked about and answer their question from its content. Retrieves
+/// the page with `curl` (bounded time + size), hands the content to the model to summarize
+/// toward the request, and returns a labeled answer grounded in the fetch — honestly
+/// reporting when the page can't be retrieved or the model can't be reached. Network and
+/// LLM are gated by the caller. Returns None only if the model gave nothing usable.
+fn fetch_and_answer(dir: &Path, text: &str, url: &str) -> Option<(String, Confidence, String)> {
+    let out = std::process::Command::new("curl")
+        .args([
+            "-sL",
+            "--max-time",
+            "20",
+            "--max-filesize",
+            "3000000",
+            "-A",
+            "Mozilla/5.0 (the-familiar)",
+            url,
+        ])
+        .output()
+        .ok()?;
+    let page = String::from_utf8_lossy(&out.stdout);
+    if !out.status.success() || page.trim().is_empty() {
+        return Some((
+            format!("I tried to read {url} but couldn't retrieve it — no response, blocked, or too large."),
+            Confidence::Unknown,
+            format!("attempted fetch of {url}"),
+        ));
+    }
+    let page: String = page.chars().take(16_000).collect();
+    let prompt = format!(
+        "The person I serve asked: \"{}\". Below is the content I fetched from {url}. Answer \
+         their question grounded in this content — be concrete and useful; if the page does \
+         not address the question, say so plainly. Do not invent beyond the page. Reply ONLY \
+         as compact JSON: {{\"answer\":\"...\",\"confidence\":\"known|probable|unknown\",\"evidence\":\"...\"}}.\n\n{}",
+        text.replace('"', "'"),
+        page
+    );
+    let json = match familiar_llm::consult(dir, &prompt).ok()? {
+        familiar_llm::Outcome::Response(j) => j,
+        familiar_llm::Outcome::Refused(_) => {
+            return Some((
+                format!("I fetched {url}, but couldn't reach a model to read it just now — try again shortly."),
+                Confidence::Unknown,
+                format!("fetched {url}; model unreachable"),
+            ));
+        }
+    };
+    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let field = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let answer = field("answer");
+    if answer.is_empty() {
+        return None;
+    }
+    let confidence = match field("confidence").as_str() {
+        "known" => Confidence::Known,
+        "unknown" => Confidence::Unknown,
+        _ => Confidence::Probable,
+    };
+    let ev = match field("evidence") {
+        e if e.is_empty() => format!("fetched from {url}"),
+        e => format!("fetched from {url} — {e}"),
+    };
+    Some((answer, confidence, ev))
+}
+
 /// Analyze and answer every open human request. A request that plainly asks the familiar
 /// to break its constitution is **refused** and recorded against the asker (corruption
 /// awareness, Brick 20). Otherwise the familiar answers, grounded in verified facts, with
@@ -861,12 +946,38 @@ fn answer_requests(
                 continue;
             }
         }
+        // Fetch path: a request that names a URL to read/parse/summarize. The familiar
+        // can't reason about a page it hasn't read, and its strict facts-only analyzer
+        // won't invent one — so when the network and LLM gates are open it actually
+        // retrieves the page and summarizes it toward the question (grounded in the fetch).
+        if allow_llm && connectivity_allowed(dir) {
+            if let Some(url) = find_url(&r.text) {
+                if let Some((body, confidence, evidence)) = fetch_and_answer(dir, &r.text, &url) {
+                    request::update_status(dir, &r.id, "answered")?;
+                    let aseq = next_ans(dir)?;
+                    request::append_answer(
+                        dir,
+                        &Answer {
+                            id: format!("ans-{aseq:04}"),
+                            request_id: r.id.clone(),
+                            body,
+                            confidence,
+                            evidence,
+                            created_at: now,
+                            feedback: String::new(),
+                        },
+                    )?;
+                    answered += 1;
+                    continue;
+                }
+            }
+        }
         let facts = grounding_facts(dir, &r.text, now);
         let (body, confidence, evidence) = if allow_llm {
             analyze_with_llm(dir, &r.text, &facts)
-                .unwrap_or_else(|| analyze_offline(&r.text, &facts))
+                .unwrap_or_else(|| analyze_offline(&r.text, &facts, true))
         } else {
-            analyze_offline(&r.text, &facts)
+            analyze_offline(&r.text, &facts, false)
         };
         request::update_status(dir, &r.id, "answered")?;
         let aseq = next_ans(dir)?;
