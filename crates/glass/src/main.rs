@@ -23,12 +23,14 @@ use familiar_kernel::identity::{self, Identity};
 use familiar_kernel::loops::{self, Loop};
 use familiar_kernel::observation::{self, Observation};
 use familiar_kernel::parameters::Parameters;
+use familiar_kernel::pattern_memory::{self, PatternMemory};
 use familiar_kernel::presence::{self, PresenceSignal};
 use familiar_kernel::question;
 use familiar_kernel::request::{self, Answer, Confidence, Request};
 use familiar_kernel::service::{self, ServiceSignal};
 use familiar_kernel::thread::{self, Thread};
 use familiar_kernel::tool::{self, Tool};
+use familiar_kernel::trial::{self, Trial};
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -44,6 +46,8 @@ struct Snapshot {
     candidates: Vec<Candidate>,
     threads: Vec<Thread>,
     tools: Vec<Tool>,
+    trials: Vec<Trial>,
+    patterns: Vec<PatternMemory>,
     ticks: Vec<ActivityTick>,
     parameters: Parameters,
     requests: Vec<Request>,
@@ -67,6 +71,8 @@ impl Snapshot {
         let candidates = candidate::load(dir).unwrap_or_default();
         let threads = thread::load(dir).unwrap_or_default();
         let tools = tool::load(dir).unwrap_or_default();
+        let trials = trial::load(dir).unwrap_or_default();
+        let patterns = pattern_memory::load(dir).unwrap_or_default();
         let ticks = activity::load(dir).unwrap_or_default();
         let parameters = Parameters::load_or_default(dir);
         let requests = request::load_requests(dir).unwrap_or_default();
@@ -85,6 +91,8 @@ impl Snapshot {
             candidates,
             threads,
             tools,
+            trials,
+            patterns,
             ticks,
             parameters,
             requests,
@@ -135,6 +143,10 @@ struct Glass {
     /// When provider availability was last probed — the occasional check runs on a throttle
     /// so a flagged LLM is re-tried (and rolled back in) without hammering it.
     last_probe: std::time::Instant,
+    /// Is the Workshop popout open — the window into what it's theorizing, testing, learning.
+    workshop_open: bool,
+    /// Workshop narration depth: false = brief (terse), true = verbose (full detail).
+    narration_verbose: bool,
     /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
     /// auto-refreshes on a throttle, not only when Ian clicks something).
     last_refresh: std::time::Instant,
@@ -170,6 +182,18 @@ fn open_url(url: &str) {
         if Command::new(bin).arg(url).spawn().is_ok() {
             return;
         }
+    }
+}
+
+/// One-line, length-capped form of a string for brief narration (newlines flattened).
+fn truncate_line(s: &str, n: usize) -> String {
+    let s = s.trim().replace('\n', " ");
+    if s.chars().count() > n {
+        let mut out: String = s.chars().take(n).collect();
+        out.push('…');
+        out
+    } else {
+        s
     }
 }
 
@@ -382,6 +406,8 @@ impl Glass {
             active_scroll: None,
             ui_scale,
             last_probe: std::time::Instant::now(),
+            workshop_open: false,
+            narration_verbose: false,
             last_refresh: std::time::Instant::now(),
         }
     }
@@ -908,6 +934,145 @@ impl Glass {
             }
         }
     }
+    /// The Workshop (rendered in the popout): the familiar narrating itself — what it's
+    /// theorizing, what it's testing/mutating and how it scored, and the lessons it has
+    /// drawn — at the chosen depth. Brief = terse one-liners; verbose = the full detail the
+    /// metabolism already records (hypothesis, lineage, score breakdown, failure, mutation).
+    fn workshop_ui(&mut self, ui: &mut egui::Ui) {
+        let blue = egui::Color32::from_rgb(150, 200, 255);
+        let green = egui::Color32::from_rgb(150, 205, 150);
+        let amber = egui::Color32::from_rgb(220, 150, 70);
+
+        ui.heading("🧪 Workshop");
+        ui.label(
+            egui::RichText::new("what the familiar is theorizing, testing, and learning").weak(),
+        );
+        ui.add_space(4.0);
+        // the brief ⇄ verbose switch
+        ui.horizontal(|ui| {
+            ui.label("narration:");
+            ui.selectable_value(&mut self.narration_verbose, false, "Brief");
+            ui.selectable_value(&mut self.narration_verbose, true, "Verbose");
+        });
+        ui.separator();
+        let verbose = self.narration_verbose;
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                // --- Theorizing ---
+                ui.label(egui::RichText::new("💭 Theorizing").strong().color(blue));
+                let theories: Vec<&Thread> = self
+                    .snapshot
+                    .threads
+                    .iter()
+                    .rev()
+                    .filter(|t| !t.theory.is_empty())
+                    .take(8)
+                    .collect();
+                if theories.is_empty() {
+                    ui.weak("(no theories yet — they form as it interprets what it observes)");
+                }
+                for t in theories {
+                    if verbose {
+                        ui.group(|ui| {
+                            if !t.question.is_empty() {
+                                ui.weak(format!("on: {}", t.question));
+                            }
+                            ui.label(format!("💭 {}", t.theory));
+                            if !t.direction.is_empty() {
+                                ui.colored_label(green, format!("→ pursuing: {}", t.direction));
+                            }
+                            ui.weak(format!("status: {} · origin: {}", t.status, t.origin));
+                        });
+                    } else {
+                        ui.label(format!("💭 {}", truncate_line(&t.theory, 90)));
+                    }
+                }
+                ui.add_space(6.0);
+
+                // --- Testing & mutating ---
+                ui.label(egui::RichText::new("🧪 Testing & mutating").strong().color(blue));
+                let cands: Vec<&Candidate> = self.snapshot.candidates.iter().rev().take(15).collect();
+                if cands.is_empty() {
+                    ui.weak("(no candidates yet — work appears once a loop forms)");
+                }
+                for c in cands {
+                    let trial = self
+                        .snapshot
+                        .trials
+                        .iter()
+                        .rev()
+                        .find(|t| t.candidate_id == c.id);
+                    if verbose {
+                        ui.group(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} · {}", c.id, c.status)).strong(),
+                            );
+                            if !c.hypothesis.is_empty() {
+                                ui.label(format!("hypothesis: {}", c.hypothesis));
+                            }
+                            let lineage = if c.parent_id.is_empty() {
+                                format!("gen {}", c.generation)
+                            } else {
+                                format!("gen {} · from {}", c.generation, c.parent_id)
+                            };
+                            ui.weak(lineage);
+                            if let Some(t) = trial {
+                                ui.label(format!("test: {} · overall {:.2}", t.result, t.overall));
+                                ui.weak(format!(
+                                    "fit {:.2} · clarity {:.2} · useful {:.2} · novelty {:.2} · safety {:.2} · cost {:.2}",
+                                    t.fit, t.clarity, t.usefulness, t.novelty, t.safety, t.complexity
+                                ));
+                                if !t.failure_class.is_empty() && t.failure_class != "none" {
+                                    ui.colored_label(amber, format!("failure: {}", t.failure_class));
+                                }
+                                if !t.notes.is_empty() {
+                                    ui.weak(format!("notes: {}", t.notes));
+                                }
+                            }
+                            if !c.mutation_reason.is_empty() {
+                                ui.colored_label(
+                                    amber,
+                                    format!("⤳ mutated: {} — changed {}", c.mutation_reason, c.changed_traits),
+                                );
+                            }
+                        });
+                    } else {
+                        let line = if !c.mutation_reason.is_empty() {
+                            format!("⤳ {} — mutated ({})", truncate_line(&c.hypothesis, 56), c.mutation_reason)
+                        } else {
+                            let r = trial
+                                .map(|t| format!("{} {:.2}", t.result, t.overall))
+                                .unwrap_or_else(|| c.status.clone());
+                            format!("🧪 {} → {r}", truncate_line(&c.hypothesis, 56))
+                        };
+                        ui.label(line);
+                    }
+                }
+                ui.add_space(6.0);
+
+                // --- Lessons ---
+                ui.label(egui::RichText::new("📚 Lessons learned").strong().color(blue));
+                let lessons: Vec<&PatternMemory> = self.snapshot.patterns.iter().rev().take(8).collect();
+                if lessons.is_empty() {
+                    ui.weak("(no lessons yet — outcomes become patterns, failures are fossils)");
+                }
+                for p in lessons {
+                    if verbose {
+                        ui.group(|ui| {
+                            ui.label(format!("📚 {}", p.lesson));
+                            if !p.applies_when.is_empty() {
+                                ui.weak(format!("applies when: {}", p.applies_when));
+                            }
+                            ui.weak(format!("confidence {:.2}", p.confidence));
+                        });
+                    } else {
+                        ui.label(format!("📚 {}", truncate_line(&p.lesson, 90)));
+                    }
+                }
+            });
+    }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
     /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
@@ -1336,6 +1501,13 @@ impl eframe::App for Glass {
             .show(ui, |ui| {
                 self.budget_meter(ui);
                 ui.add_space(4.0);
+                if ui
+                    .button("🧪 Open Workshop — watch it theorize, test, and learn")
+                    .clicked()
+                {
+                    self.workshop_open = true;
+                }
+                ui.add_space(4.0);
                 ui.label(egui::RichText::new("recent actions").weak().small());
                 activity_feed(ui, &self.snapshot.ticks, now_secs(), &mut self.active_scroll);
             });
@@ -1482,6 +1654,27 @@ impl eframe::App for Glass {
                 });
             }); // end ScrollArea
         });
+
+        // The Workshop — a real popout window onto what the familiar is theorizing, testing,
+        // and learning. Lives in its own OS window so it can sit beside the Glass.
+        if self.workshop_open {
+            let mut close = false;
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("familiar-workshop"),
+                egui::ViewportBuilder::default()
+                    .with_title("The Familiar — Workshop")
+                    .with_inner_size([580.0, 760.0]),
+                |ctx, _class| {
+                    egui::CentralPanel::default().show(ctx, |ui| self.workshop_ui(ui));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        close = true;
+                    }
+                },
+            );
+            if close {
+                self.workshop_open = false;
+            }
+        }
 
         // gentle auto-refresh so the window tracks the familiar as it runs
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
