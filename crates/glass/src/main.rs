@@ -132,6 +132,9 @@ struct Glass {
     /// The human's text-zoom (A− / A+), multiplied on top of the display's native scale.
     /// Persisted to `ui_scale.txt` so a comfortable size survives a restart.
     ui_scale: f32,
+    /// When provider availability was last probed — the occasional check runs on a throttle
+    /// so a flagged LLM is re-tried (and rolled back in) without hammering it.
+    last_probe: std::time::Instant,
     /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
     /// auto-refreshes on a throttle, not only when Ian clicks something).
     last_refresh: std::time::Instant,
@@ -378,6 +381,7 @@ impl Glass {
             key_cerebras: String::new(),
             active_scroll: None,
             ui_scale,
+            last_probe: std::time::Instant::now(),
             last_refresh: std::time::Instant::now(),
         }
     }
@@ -618,6 +622,45 @@ impl Glass {
             let _ = std::fs::write(dir.join("llm").join("connect_status.txt"), status);
         });
     }
+    /// Refresh provider availability — the occasional check. Runs the adapter's probe mode
+    /// (pings every configured provider and updates health.json) so the familiar knows which
+    /// LLMs it can roll to. Best-effort, background, never blocks the UI.
+    fn probe_llm(&self) {
+        let adapter = self.data_dir.join("llm").join("call_llm.sh");
+        if !adapter.exists() {
+            return;
+        }
+        std::thread::spawn(move || {
+            let _ = Command::new("sh").arg(&adapter).arg("probe").output();
+        });
+    }
+    /// Per-provider availability from health.json: (name, ok, detail). Empty until the
+    /// adapter has run at least once (a consult or a probe writes it).
+    fn provider_health(&self) -> Vec<(String, bool, String)> {
+        let Ok(raw) = std::fs::read_to_string(self.data_dir.join("llm").join("health.json")) else {
+            return Vec::new();
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if let Some(map) = v.as_object() {
+            for (name, h) in map {
+                let status = h.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                let detail = h.get("detail").and_then(|s| s.as_str()).unwrap_or("");
+                let ok = status == "ok";
+                let label = if ok {
+                    "available".to_string()
+                } else if !detail.is_empty() {
+                    detail.to_string()
+                } else {
+                    status.to_string()
+                };
+                out.push((name.clone(), ok, label));
+            }
+        }
+        out
+    }
     /// The Connect wizard — the place a tester gives the familiar a mind. Collapsed once
     /// connected, open on first run. Acquiring the key is the only manual step; everything
     /// else (adapter, key.env, the boundary gate) the wizard does on a single click.
@@ -626,6 +669,7 @@ impl Glass {
             && self.data_dir.join("llm").join("call_llm.sh").exists()
             && llm_key_present(&self.data_dir);
         let status = read_connect_status(&self.data_dir);
+        let health = self.provider_health();
         let title = if connected {
             "🔌 Connect — the familiar's mind (LLM)  ·  ✓ connected"
         } else {
@@ -687,8 +731,9 @@ impl Glass {
                     if ui.button(label).clicked() {
                         self.connect_llm();
                     }
-                    if connected && ui.button("Test connection").clicked() {
+                    if connected && ui.button("Test & check providers").clicked() {
                         self.write_connect_status("testing the connection…");
+                        self.probe_llm();
                         self.test_llm();
                     }
                 });
@@ -701,6 +746,31 @@ impl Glass {
                         egui::Color32::from_rgb(170, 170, 140)
                     };
                     ui.colored_label(color, s);
+                }
+                // Provider availability — which LLMs are up, which are flagged and why. The
+                // familiar rolls to a healthy one automatically; a flagged one rests, then
+                // is re-checked by the periodic probe.
+                if !health.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("providers").weak().small());
+                    for (name, ok, detail) in &health {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            if *ok {
+                                ui.colored_label(egui::Color32::from_rgb(120, 200, 130), "●");
+                                ui.label(egui::RichText::new(name).small());
+                                ui.label(egui::RichText::new("available").weak().small());
+                            } else {
+                                ui.colored_label(egui::Color32::from_rgb(220, 150, 70), "○");
+                                ui.label(egui::RichText::new(name).small());
+                                ui.label(
+                                    egui::RichText::new(detail)
+                                        .small()
+                                        .color(egui::Color32::from_rgb(220, 150, 70)),
+                                );
+                            }
+                        });
+                    }
                 }
             });
     }
@@ -1037,6 +1107,15 @@ impl eframe::App for Glass {
         // Apply the human's chosen text-zoom (on top of the display's native scale).
         if (ctx.zoom_factor() - self.ui_scale).abs() > 0.001 {
             ctx.set_zoom_factor(self.ui_scale);
+        }
+        // Occasional availability check: re-probe the LLM providers every few minutes when
+        // the gate is open, so a flagged provider is re-tested and rolled back in if it
+        // recovers — and the Glass shows current health without the human asking.
+        if self.snapshot.boundary.allow_llm
+            && self.last_probe.elapsed() >= std::time::Duration::from_secs(300)
+        {
+            self.probe_llm();
+            self.last_probe = std::time::Instant::now();
         }
         // Track the daemon live: reload the snapshot on a throttle (not only when Ian acts),
         // so observations, the activity feed, the chart, and new questions stay current —

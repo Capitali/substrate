@@ -1,14 +1,18 @@
 #!/bin/sh
-# call_llm.sh — Substrate LLM adapter (the periphery seam), multi-provider.
+# call_llm.sh — Substrate LLM adapter (the periphery seam), multi-provider + resilient.
 #
 # This is a REFERENCE script. It is never invoked unless a human has opened the
-# capability boundary (boundary.json: "allow_llm": true) — the obedience guard
-# refuses an LLM consult under the default-closed boundary, so nothing here runs by
-# default. To enable Phase 1, a human copies this script (and a key.env) into the
-# data dir's llm/ folder and flips the boundary. See docs/boundaries.md.
+# capability boundary (boundary.json: "allow_llm": true) — the obedience guard refuses an
+# LLM consult under the default-closed boundary, so nothing here runs by default.
 #
-# Reads:  $SCRIPT_DIR/prompt.txt
-# Writes: $SCRIPT_DIR/response.json
+# Modes:
+#   (default) consult — read prompt.txt, answer via the first healthy provider, write response.json
+#   probe             — ping every configured provider with a tiny request and refresh health.json
+#                       (the occasional availability check; does not touch response.json)
+#
+# Reads:  $SCRIPT_DIR/prompt.txt        (consult mode)
+# Writes: $SCRIPT_DIR/response.json     (consult mode, on success)
+#         $SCRIPT_DIR/health.json       (always — per-provider status the system can surface)
 #
 #   SUBSTRATE_LLM_PROVIDER   provider chain, comma-separated   (default: openrouter,gemini,cerebras)
 #
@@ -19,30 +23,32 @@
 # Models (optional): OPENROUTER_MODEL (default openai/gpt-4o-mini),
 #                    GEMINI_MODEL (default gemini-2.5-flash), CEREBRAS_MODEL (default gpt-oss-120b)
 #
-# Secrets: if $SCRIPT_DIR/key.env exists it is sourced first (it matches *.env in
-# .gitignore, so a real key.env can never be committed).
+# Resilience: each provider is tried in turn; a failure is recorded in health.json with a
+# reason and a cooldown (`available_after`). Providers in cooldown are deprioritised, so the
+# next consult rolls straight to a healthy one instead of re-hitting a dead one. On HTTP 402
+# (out of credits / too many tokens) the provider is retried once with a budget that fits.
+# Exit 0 = answered; 2 = every provider rate-limited; 1 = otherwise failed.
 #
-# On HTTP 429 the adapter records the provider's retry delay and fails over; if every
-# provider is rate-limited it prints the soonest retry and exits 2 (hard failure: 1).
+# Secrets: if $SCRIPT_DIR/key.env exists it is sourced first (it matches *.env in .gitignore).
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROMPT_FILE="$SCRIPT_DIR/prompt.txt"
+MODE="${1:-consult}"
 
 if [ -f "$SCRIPT_DIR/key.env" ]; then
     . "$SCRIPT_DIR/key.env"
 fi
 
-if [ ! -f "$PROMPT_FILE" ]; then
-    echo "error: prompt.txt not found at $PROMPT_FILE" >&2
+if [ "$MODE" = "consult" ] && [ ! -f "$SCRIPT_DIR/prompt.txt" ]; then
+    echo "error: prompt.txt not found at $SCRIPT_DIR/prompt.txt" >&2
     exit 1
 fi
 
 PROVIDERS="${SUBSTRATE_LLM_PROVIDER:-openrouter,gemini,cerebras}"
 
-python3 - "$SCRIPT_DIR" "$PROVIDERS" <<'PYEOF'
-import os, sys, json, re, socket, urllib.request, urllib.error
+python3 - "$SCRIPT_DIR" "$PROVIDERS" "$MODE" <<'PYEOF'
+import os, sys, json, re, time, socket, urllib.request, urllib.error
 
 # Prefer IPv4: some networks advertise IPv6 that silently blackholes, and Python's urllib
 # has no Happy-Eyeballs fallback, so it would hang on the dead AAAA address (curl avoids
@@ -50,14 +56,42 @@ import os, sys, json, re, socket, urllib.request, urllib.error
 _gai = socket.getaddrinfo
 socket.getaddrinfo = lambda *a, **k: sorted(_gai(*a, **k), key=lambda ai: ai[0] != socket.AF_INET)
 
-script_dir, providers = sys.argv[1], sys.argv[2]
-prompt_path   = os.path.join(script_dir, "prompt.txt")
+script_dir, providers_str, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+prompt_path = os.path.join(script_dir, "prompt.txt")
 response_path = os.path.join(script_dir, "response.json")
+health_path = os.path.join(script_dir, "health.json")
+now = int(time.time())
 
-with open(prompt_path) as f:
-    prompt_text = f.read()
+if mode == "consult":
+    with open(prompt_path) as f:
+        prompt_text = f.read()
+else:  # probe — a tiny, cheap request just to learn who's alive
+    prompt_text = 'Reply only with this exact JSON and nothing else: {"ok": true}'
 
 shared_key = os.environ.get("SUBSTRATE_LLM_API_KEY", "")
+DEFAULT_MAX_TOKENS = 2048
+# A floor below which a credit-starved provider isn't worth retrying.
+MIN_TOKENS = 256
+# Cooldowns (seconds) — how long to deprioritise a provider after a given failure.
+COOL_CREDITS = 3600   # out of credits won't refill soon
+COOL_ERROR = 600      # transient/unknown error
+COOL_RATELIMIT = 300  # default when no Retry-After is given
+
+
+def load_health():
+    try:
+        with open(health_path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_health(h):
+    try:
+        with open(health_path, "w") as f:
+            json.dump(h, f, indent=2)
+    except Exception:
+        pass
 
 
 def strip_fences(text):
@@ -76,13 +110,13 @@ def post(url, payload, headers):
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(),
         headers={"content-type": "application/json",
-                 "user-agent": "substrate/2.0", **headers},
+                 "user-agent": "substrate/2.1", **headers},
         method="POST")
     with urllib.request.urlopen(req, timeout=90) as resp:
         return json.loads(resp.read())
 
 
-def call_gemini():
+def call_gemini(max_tokens):
     key = os.environ.get("GEMINI_API_KEY") or shared_key
     if not key:
         raise RuntimeError("no GEMINI_API_KEY (or SUBSTRATE_LLM_API_KEY)")
@@ -92,21 +126,21 @@ def call_gemini():
     payload = {
         "contents": [{"parts": [{"text": prompt_text}]}],
         "generationConfig": {"response_mime_type": "application/json",
-                             "maxOutputTokens": 4096,
+                             "maxOutputTokens": max_tokens,
                              "thinkingConfig": {"thinkingBudget": 0}},
     }
     body = post(url, payload, {})
     return body["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def call_cerebras():
+def call_cerebras(max_tokens):
     key = os.environ.get("CEREBRAS_API_KEY") or shared_key
     if not key:
         raise RuntimeError("no CEREBRAS_API_KEY (or SUBSTRATE_LLM_API_KEY)")
     model = os.environ.get("CEREBRAS_MODEL", "gpt-oss-120b")
     payload = {
         "model": model,
-        "max_tokens": 2048,
+        "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "user", "content": prompt_text}],
     }
@@ -115,19 +149,17 @@ def call_cerebras():
     return body["choices"][0]["message"]["content"]
 
 
-def call_openrouter():
+def call_openrouter(max_tokens):
     key = os.environ.get("OPENROUTER_API_KEY") or shared_key
     if not key:
         raise RuntimeError("no OPENROUTER_API_KEY (or SUBSTRATE_LLM_API_KEY)")
     model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
     payload = {
         "model": model,
-        "max_tokens": 2048,
+        "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "user", "content": prompt_text}],
     }
-    # OpenAI-compatible Chat Completions endpoint. The optional Referer/Title headers
-    # let OpenRouter attribute the call; they carry no secret.
     body = post("https://openrouter.ai/api/v1/chat/completions", payload,
                 {"authorization": f"Bearer {key}",
                  "http-referer": "https://github.com/Capitali/familiar",
@@ -138,52 +170,104 @@ def call_openrouter():
 PROVIDERS = {"openrouter": call_openrouter, "gemini": call_gemini, "cerebras": call_cerebras}
 
 
-def parse_retry(e):
+def http_detail(e):
+    """(retry_after_secs|None, affordable_tokens|None, short_body) from an HTTPError."""
     ra = e.headers.get("Retry-After") if e.headers else None
-    if ra and ra.strip().isdigit():
-        return int(ra.strip())
+    retry = int(ra.strip()) if ra and ra.strip().isdigit() else None
     try:
         body = e.read().decode(errors="replace")
     except Exception:
         body = ""
-    m = re.search(r'"retryDelay"\s*:\s*"?(\d+)', body)
-    return int(m.group(1)) if m else None
+    if retry is None:
+        m = re.search(r'"retryDelay"\s*:\s*"?(\d+)', body)
+        retry = int(m.group(1)) if m else None
+    m = re.search(r'afford (\d+)', body)
+    afford = int(m.group(1)) if m else None
+    return retry, afford, body[:200]
 
+
+def mark(health, name, status, detail, cool):
+    health[name] = {"status": status, "detail": detail, "ts": now,
+                    "available_after": now + cool}
+
+
+def succeed(health, name):
+    health[name] = {"status": "ok", "detail": "", "ts": now, "available_after": 0}
+
+
+health = load_health()
+configured = [p.strip() for p in providers_str.split(",") if p.strip()]
+
+# Order: providers not in cooldown first, then those last seen healthy, otherwise the
+# configured order (stable sort). This is the quick rollover — a dead provider sinks.
+def rank(p):
+    h = health.get(p, {})
+    cooling = 1 if h.get("available_after", 0) > now else 0
+    not_ok = 0 if h.get("status") == "ok" else 1
+    return (cooling, not_ok)
+
+order = configured if mode == "probe" else sorted(configured, key=rank)
 
 errors = []
-retry_after = []
-for name in [p.strip() for p in providers.split(",") if p.strip()]:
+rate_limited = []
+answered = False
+
+for name in order:
     fn = PROVIDERS.get(name)
     if not fn:
         errors.append(f"{name}: unknown provider")
         continue
     try:
-        text = strip_fences(fn())
+        text = strip_fences(fn(DEFAULT_MAX_TOKENS))
         json.loads(text)
-        with open(response_path, "w") as f:
-            f.write(text)
-        print(f"LLM response via {name} ({len(text)} bytes)", file=sys.stderr)
-        sys.exit(0)
+        succeed(health, name)
+        if mode == "consult":
+            with open(response_path, "w") as f:
+                f.write(text)
+            save_health(health)
+            print(f"LLM response via {name} ({len(text)} bytes)", file=sys.stderr)
+            sys.exit(0)
+        answered = True  # probe: keep going to refresh every provider
     except urllib.error.HTTPError as e:
+        retry, afford, body = http_detail(e)
         if e.code == 429:
-            wait = parse_retry(e)
-            retry_after.append(wait)
-            when = f", retry in {wait}s" if wait is not None else ""
-            errors.append(f"{name}: rate-limited (429){when}")
+            wait = retry or COOL_RATELIMIT
+            mark(health, name, "rate_limited", f"rate-limited (429)", wait)
+            rate_limited.append(name)
+            errors.append(f"{name}: rate-limited (429), retry in {wait}s")
+        elif e.code == 402:
+            # out of credits / too many tokens — retry once within the affordable budget
+            if mode == "consult" and afford and afford > MIN_TOKENS:
+                try:
+                    text = strip_fences(fn(max(MIN_TOKENS, afford - 128)))
+                    json.loads(text)
+                    succeed(health, name)
+                    with open(response_path, "w") as f:
+                        f.write(text)
+                    save_health(health)
+                    print(f"LLM response via {name} (reduced to fit credits)", file=sys.stderr)
+                    sys.exit(0)
+                except Exception:
+                    pass
+            mark(health, name, "error", "insufficient credits (HTTP 402)", COOL_CREDITS)
+            errors.append(f"{name}: out of credits (402){'' if not afford else f', affords {afford}'}")
         else:
-            try:
-                detail = e.read().decode(errors="replace")[:200]
-            except Exception:
-                detail = ""
-            errors.append(f"{name}: HTTP {e.code} {detail}")
+            mark(health, name, "error", f"HTTP {e.code} {body}", COOL_ERROR)
+            errors.append(f"{name}: HTTP {e.code} {body}")
     except Exception as e:  # noqa: BLE001
+        mark(health, name, "error", str(e)[:200], COOL_ERROR)
         errors.append(f"{name}: {e}")
 
-all_limited = bool(retry_after) and len(retry_after) == len(errors)
+save_health(health)
+
+if mode == "probe":
+    alive = [p for p in configured if health.get(p, {}).get("status") == "ok"]
+    print(f"probe: healthy = {alive or 'none'}", file=sys.stderr)
+    sys.exit(0 if alive else 1)
+
+all_limited = bool(rate_limited) and len(rate_limited) == len(errors)
 if all_limited:
-    waits = [s for s in retry_after if s is not None]
-    print("all providers rate-limited; soonest retry in "
-          + (f"{min(waits)}s" if waits else "unknown"), file=sys.stderr)
+    print("all providers rate-limited", file=sys.stderr)
 print("all providers failed:\n  " + "\n  ".join(errors), file=sys.stderr)
 sys.exit(2 if all_limited else 1)
 PYEOF
