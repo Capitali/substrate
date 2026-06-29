@@ -367,14 +367,15 @@ fn install_theme(ctx: &egui::Context) {
     v.widgets.active.fg_stroke.color = egui::Color32::WHITE;
     v.panel_fill = theme::CHASSIS_MID; // the beige chassis (rails)
     v.window_fill = theme::CHASSIS_DARK;
-    // Buttons read as blue chips with white text in *every* state. egui fills a button
-    // with `weak_bg_fill`, so it must be set for inactive/hovered/active/open alike — set
-    // only inactive (as before) and hover falls back to a light default → white-on-white.
+    // Buttons are *dark* blue chips with white text in EVERY interactive state. egui fills a
+    // button with `weak_bg_fill` (per state) and draws its text with that state's
+    // `fg_stroke` — so set both, for inactive/hovered/active/open, all dark enough that
+    // white stays high-contrast (an over-light hover shade would read as white-on-white).
     for (w, fill) in [
-        (&mut v.widgets.inactive, theme::BLUE_MID),
-        (&mut v.widgets.hovered, theme::BLUE_LIGHT),
-        (&mut v.widgets.active, theme::BLUE_DARK),
-        (&mut v.widgets.open, theme::BLUE_MID),
+        (&mut v.widgets.inactive, theme::BLUE_DARK),
+        (&mut v.widgets.hovered, theme::BLUE_MID),
+        (&mut v.widgets.active, theme::NAVY_MID),
+        (&mut v.widgets.open, theme::BLUE_DARK),
     ] {
         w.bg_fill = fill;
         w.weak_bg_fill = fill;
@@ -383,12 +384,19 @@ fn install_theme(ctx: &egui::Context) {
         w.corner_radius = egui::CornerRadius::same(8);
     }
     v.extreme_bg_color = theme::NAVY; // text-edit background (inputs live on navy screens)
-    v.selection.bg_fill = theme::BLUE_DARK;
-    // weak/.small() blends 50/50 toward this — keep bright so dim print stays legible on navy.
-    v.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(170, 178, 192);
+    v.selection.bg_fill = theme::BLUE_LIGHT;
+    // Disabled widgets fade toward this; keep it dark so a disabled control never washes out
+    // to light-on-light. (Weak/.small() text also blends toward it — readable mid-grey ink.)
+    v.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(120, 130, 150);
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
     style.spacing.button_padding = egui::vec2(9.0, 5.0);
-    ctx.set_style(style);
+    // CRITICAL: egui keeps a separate Style per theme (dark/light) and `set_style` only sets
+    // the *current* one. If macOS resolves to the other theme, egui falls back to its default
+    // widget visuals — which is why buttons rendered light-on-light. Pin this one cockpit
+    // style to BOTH themes so it's used regardless of the system appearance.
+    let style = std::sync::Arc::new(style);
+    ctx.set_style_of(egui::Theme::Dark, style.clone());
+    ctx.set_style_of(egui::Theme::Light, style);
 }
 
 /// The familiar's name-ask, shown until it has learned who it serves. Mirrors the cycle's
@@ -1741,8 +1749,6 @@ impl eframe::App for Glass {
                         if ui.button("Dismiss").clicked() {
                             self.dismiss_question();
                         }
-                        ui.add_enabled(false, egui::Button::new("🎤 speak (soon)"));
-                        ui.add_enabled(false, egui::Button::new("📷 show (soon)"));
                         ui.label(
                             egui::RichText::new("answer, or dismiss — your call")
                                 .weak()
