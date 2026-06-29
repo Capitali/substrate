@@ -1118,6 +1118,11 @@ impl eframe::App for Glass {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // The vital-signs box is pinned to the upper-right — fixed, small, always the
+            // last 10 minutes. It sits outside the scroll so it never moves.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                metabolism_box(ui, &self.snapshot.ticks, now_secs());
+            });
             // The Glass holds more than fits a window — the channel, the ask, activity,
             // theories, the laws, loops, and every observation. The whole panel scrolls so
             // the human can reach all of it, not just what lands above the fold.
@@ -1242,15 +1247,14 @@ impl eframe::App for Glass {
             ui.add_space(6.0);
             self.conversation_panel(ui);
 
-            // --- the metabolism at work: a signals chart + a feed of recent actions ---
+            // --- the metabolism at work: the self-pacing meter + a feed of recent actions
+            //     (the vital-signs chart lives in the fixed box, upper-right) ---
             ui.add_space(6.0);
             egui::CollapsingHeader::new(
                 egui::RichText::new("📈 Activity — the metabolism at work").strong(),
             )
             .default_open(true)
             .show(ui, |ui| {
-                signals_chart(ui, &self.snapshot.ticks);
-                ui.add_space(4.0);
                 self.budget_meter(ui);
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("recent actions").weak().small());
@@ -1407,50 +1411,54 @@ impl eframe::App for Glass {
 
 /// A line chart of the law-signals over the recent ticks — the familiar's vital signs
 /// over time, so liveness is visible at a glance (not just a single current number).
-fn signals_chart(ui: &mut egui::Ui, ticks: &[ActivityTick]) {
-    if ticks.len() < 2 {
-        ui.weak("(the signals chart appears once the metabolism has ticked a few times)");
-        return;
-    }
-    let start = ticks.len().saturating_sub(120); // last ~120 ticks
-    let recent = &ticks[start..];
-    let series = |sel: fn(&ActivityTick) -> f64| -> PlotPoints {
-        recent
-            .iter()
-            .enumerate()
-            .map(|(i, t)| [i as f64, sel(t)])
-            .collect()
-    };
-    Plot::new("signals")
-        .height(160.0)
-        .legend(Legend::default())
-        // The signals are all 0..1, so the vertical scale is fixed — no accidental
-        // vertical drift, and small changes read at a stable size.
-        .include_y(0.0)
-        .include_y(1.05)
-        // Trackpad-friendly: the time axis (x) is the only one that moves. Pinch or
-        // ctrl-scroll zooms it; a drag or a *horizontal* two-finger scroll pans it left
-        // and right — while a *vertical* two-finger scroll falls through to the page, so
-        // the panel keeps scrolling under your fingers instead of the plot eating it.
-        .allow_zoom(egui::Vec2b::new(true, false))
-        .allow_drag(egui::Vec2b::new(true, false))
-        .allow_scroll(egui::Vec2b::new(true, false))
-        .allow_boxed_zoom(false)
-        // By default the view frames the whole displayed range (auto-centered on the data);
-        // a zoom or pan is a temporary inspection you can undo with a double-click.
-        .auto_bounds(egui::Vec2b::new(true, true))
-        .set_margin_fraction(egui::vec2(0.02, 0.05))
-        .show(ui, |p| {
-            p.line(Line::new(series(|t| t.service)).name("service (I)"));
-            p.line(Line::new(series(|t| t.presence)).name("presence (II)"));
-            p.line(Line::new(series(|t| t.capacities)).name("capacities (II)"));
+/// A small, fixed vital-signs box pinned to the upper-right. It always shows the **last 10
+/// minutes** of the law-signals — no scrolling, no zooming, no interaction. The x-axis is
+/// the fixed 10-minute window; the y-axis auto-fits the min/max of what's actually moving,
+/// so small changes are legible without manual zoom.
+fn metabolism_box(ui: &mut egui::Ui, ticks: &[ActivityTick], now: i64) {
+    const WINDOW_SECS: i64 = 600; // last 10 minutes
+    egui::Frame::group(ui.style())
+        .fill(egui::Color32::from_rgb(20, 24, 32))
+        .show(ui, |ui| {
+            ui.set_width(280.0);
+            ui.label(
+                egui::RichText::new("🫀 metabolism · last 10 min")
+                    .small()
+                    .strong()
+                    .color(egui::Color32::from_rgb(150, 200, 255)),
+            );
+            let recent: Vec<&ActivityTick> =
+                ticks.iter().filter(|t| now - t.ts <= WINDOW_SECS).collect();
+            if recent.len() < 2 {
+                ui.add_space(8.0);
+                ui.weak("(warming up — the signals appear after a few ticks)");
+                ui.add_space(8.0);
+                return;
+            }
+            // x = minutes ago (negative), so the window reads -10 … 0
+            let series = |sel: fn(&ActivityTick) -> f64| -> PlotPoints {
+                recent
+                    .iter()
+                    .map(|t| [(t.ts - now) as f64 / 60.0, sel(t)])
+                    .collect()
+            };
+            Plot::new("metabolism")
+                .height(100.0)
+                .legend(Legend::default())
+                // fixed 10-minute window on x; y left to auto-fit the data's own min/max
+                .include_x(-10.0)
+                .include_x(0.0)
+                .allow_drag(false)
+                .allow_zoom(false)
+                .allow_scroll(false)
+                .allow_boxed_zoom(false)
+                .set_margin_fraction(egui::vec2(0.0, 0.1))
+                .show(ui, |p| {
+                    p.line(Line::new(series(|t| t.service)).name("service"));
+                    p.line(Line::new(series(|t| t.presence)).name("presence"));
+                    p.line(Line::new(series(|t| t.capacities)).name("capacities"));
+                });
         });
-    ui.weak(
-        egui::RichText::new(
-            "drag or scroll ⇄ to move through time · pinch to zoom · double-click to fit all",
-        )
-        .small(),
-    );
 }
 
 /// A bounded scroll region that only scrolls once the human has *clicked into it* — so
