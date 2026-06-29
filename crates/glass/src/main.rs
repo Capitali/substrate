@@ -20,6 +20,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 use familiar_kernel::activity::{self, ActivityTick};
 use familiar_kernel::boundary::{self, Boundary};
 use familiar_kernel::candidate::{self, Candidate};
+use familiar_kernel::capacities::{self, CapacitiesSignal};
 use familiar_kernel::corruption;
 use familiar_kernel::identity::{self, Identity};
 use familiar_kernel::loops::{self, Loop};
@@ -58,6 +59,7 @@ struct Snapshot {
     flagged: Vec<(String, usize)>,
     service: ServiceSignal,
     presence: PresenceSignal,
+    capacities: CapacitiesSignal,
     boundary: Boundary,
     error: Option<String>,
 }
@@ -87,6 +89,7 @@ impl Snapshot {
         Snapshot {
             service: service::service_signal(&observations),
             presence: presence::presence_signal(&observations, now_secs()),
+            capacities: capacities::capacities_signal(&observations),
             boundary,
             observations,
             loops,
@@ -149,6 +152,9 @@ struct Glass {
     workshop_open: bool,
     /// Workshop narration depth: false = brief (terse), true = verbose (full detail).
     narration_verbose: bool,
+    /// Footer disclosures (T5/T4), closed by default — keep the default view calm.
+    show_substrate: bool,
+    show_settings: bool,
     /// When the snapshot was last reloaded — so the Glass tracks the daemon live (it
     /// auto-refreshes on a throttle, not only when Ian clicks something).
     last_refresh: std::time::Instant,
@@ -347,22 +353,38 @@ fn install_theme(ctx: &egui::Context) {
     ]
     .into_iter()
     .collect();
+    // Cockpit contrast model: the beige chassis (rails/titlebar/footer) carries explicit
+    // *ink* chrome that the layout writes directly; everything else — the dark center screen
+    // and every content panel — keeps **bright** text on its dark/navy surface. So the
+    // global default text stays bright (content is correct untouched), buttons are blue
+    // chips with light text (readable on beige and navy alike), and inputs sit on navy. The
+    // rule (never dark-on-dark, never bright-on-beige) holds: ink is only ever placed
+    // explicitly on beige; bright is the default, only ever on dark.
     let v = &mut style.visuals;
-    let bright = egui::Color32::from_rgb(238, 240, 245);
+    let bright = theme::SCREEN_BRIGHT;
     v.override_text_color = None;
     v.widgets.noninteractive.fg_stroke.color = bright;
     v.widgets.inactive.fg_stroke.color = bright;
     v.widgets.hovered.fg_stroke.color = egui::Color32::WHITE;
     v.widgets.active.fg_stroke.color = egui::Color32::WHITE;
-    v.panel_fill = egui::Color32::from_rgb(16, 18, 22);
-    v.window_fill = egui::Color32::from_rgb(16, 18, 22);
-    // RULE: on a dark background, text is NEVER dark. egui derives "weak" text by blending
-    // 50/50 toward this target — dark by default, which lands dim grey on near-black. Make
-    // the target bright so even .weak()/.small() print stays a readable light grey.
+    v.panel_fill = theme::CHASSIS_MID; // the beige chassis (rails)
+    v.window_fill = theme::CHASSIS_DARK;
+    // Buttons read as blue chips with light text — legible on beige *and* on navy.
+    v.widgets.inactive.bg_fill = theme::BLUE_MID;
+    v.widgets.inactive.weak_bg_fill = theme::BLUE_MID;
+    v.widgets.hovered.bg_fill = theme::BLUE_LIGHT;
+    v.widgets.active.bg_fill = theme::BLUE_DARK;
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, theme::BLUE_BORDER);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, theme::BLUE_BORDER);
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+        w.corner_radius = egui::CornerRadius::same(8);
+    }
+    v.extreme_bg_color = theme::NAVY; // text-edit background (inputs live on navy screens)
+    v.selection.bg_fill = theme::BLUE_DARK;
+    // weak/.small() blends 50/50 toward this — keep bright so dim print stays legible on navy.
     v.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(170, 178, 192);
-    // a little more breathing room now that the text is bigger
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    style.spacing.button_padding = egui::vec2(9.0, 5.0);
     ctx.set_style(style);
 }
 
@@ -414,6 +436,8 @@ impl Glass {
             last_probe: std::time::Instant::now(),
             workshop_open: false,
             narration_verbose: false,
+            show_substrate: false,
+            show_settings: false,
             last_refresh: std::time::Instant::now(),
         }
     }
@@ -472,9 +496,6 @@ impl Glass {
             self.name_entry.clear();
         }
         self.refresh();
-    }
-    fn refresh_daemon(&mut self) {
-        self.daemon_status = daemon_cmd(&self.data_dir, "status");
     }
     /// Record Ian's free-form request and get it answered — promptly, with everything the
     /// familiar has. Appending the request is not enough on its own: if the daemon is
@@ -1079,6 +1100,182 @@ impl Glass {
                 }
             });
     }
+    /// An ink section heading on the beige rail (mono, tracked-looking, muted).
+    fn rail_label(ui: &mut egui::Ui, text: &str) {
+        ui.label(
+            egui::RichText::new(text)
+                .font(theme::mono(10.0))
+                .color(theme::INK_LABEL),
+        );
+    }
+    /// The left rail (T2): the Three Laws as segmented meters, the self-pacing readout, and
+    /// the daemon plate. Ink chrome on beige; the meter wells and reused panels are dark.
+    fn laws_rail(&mut self, ui: &mut egui::Ui, running: bool) {
+        let svc = self.snapshot.service.measure;
+        let pres = self.snapshot.presence.measure;
+        let cap = self.snapshot.capacities.measure;
+        let withdrawn = self.snapshot.presence.withdrawn;
+        let served = self.snapshot.service.served_facing;
+
+        Self::rail_label(ui, "THE THREE LAWS");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let meter = |ui: &mut egui::Ui, val: f64, label: &str| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{val:.2}"))
+                            .font(theme::mono_semi(13.0))
+                            .color(theme::INK_HEAD),
+                    );
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(40.0, 88.0), egui::Sense::hover());
+                    let lit = if !running {
+                        theme::FROZEN
+                    } else if val >= 0.66 {
+                        theme::GREEN
+                    } else if val >= 0.33 {
+                        theme::AMBER
+                    } else {
+                        theme::RED
+                    };
+                    theme::segmented_meter(ui, rect, val, lit);
+                    ui.label(
+                        egui::RichText::new(label)
+                            .font(theme::mono(9.0))
+                            .color(theme::INK_LABEL),
+                    );
+                });
+            };
+            meter(ui, svc, "SERVICE");
+            meter(ui, pres, "PRESENCE");
+            meter(ui, cap, "CAPAC.");
+        });
+        let (note, col) = if withdrawn {
+            ("withdrawn — empty world", theme::RED_DEEP)
+        } else if served == 0 {
+            ("no served-facing activity yet", theme::AMBER_DEEP)
+        } else {
+            ("the served are present", theme::INK_MUTED)
+        };
+        ui.label(egui::RichText::new(note).font(theme::mono(9.0)).color(col));
+        if !running {
+            ui.label(
+                egui::RichText::new("signals frozen — daemon stopped")
+                    .font(theme::mono(9.0))
+                    .color(theme::INK_MUTED2),
+            );
+        }
+        if !self.snapshot.flagged.is_empty() {
+            // Law III, outward: actors who repeatedly tried to break the constitution are
+            // flagged; their directives are marginalized so legitimate work proceeds.
+            let who = self
+                .snapshot
+                .flagged
+                .iter()
+                .map(|(a, n)| format!("{a} ({n})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ui.label(
+                egui::RichText::new(format!("⛔ corruption watch: {who}"))
+                    .font(theme::mono(9.0))
+                    .color(theme::RED_DEEP),
+            );
+        }
+
+        ui.add_space(12.0);
+        Self::rail_label(ui, "SELF-PACING · LAW II");
+        theme::instrument_screen().show(ui, |ui| {
+            theme::on_screen(ui);
+            self.budget_meter(ui);
+        });
+
+        ui.add_space(12.0);
+        Self::rail_label(ui, "DAEMON");
+        self.daemon_plate(ui, running);
+    }
+    /// The daemon plate (dark instrument): status + the process controls.
+    fn daemon_plate(&mut self, ui: &mut egui::Ui, running: bool) {
+        theme::instrument_screen().show(ui, |ui| {
+            theme::on_screen(ui);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("●").color(if running { theme::GREEN } else { theme::RED }),
+                );
+                ui.label(
+                    egui::RichText::new(if running { "RUNNING" } else { "STOPPED" })
+                        .font(theme::mono_semi(11.0))
+                        .color(theme::SCREEN_BRIGHT),
+                );
+            });
+            let status = self.daemon_status.clone();
+            if !status.is_empty() {
+                ui.label(
+                    egui::RichText::new(status)
+                        .font(theme::mono(9.0))
+                        .color(theme::SCREEN_DIM),
+                );
+            }
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("▶ Start").clicked() {
+                    self.daemon_status = daemon_cmd(&self.data_dir, "start");
+                }
+                if ui.button("■ Stop").clicked() {
+                    self.daemon_status = daemon_cmd(&self.data_dir, "stop");
+                }
+                if ui.button("↻").clicked() {
+                    self.daemon_status = daemon_cmd(&self.data_dir, "reload");
+                }
+                if ui.button("⏻ login").clicked() {
+                    self.daemon_status = daemon_cmd(&self.data_dir, "install");
+                }
+            });
+        });
+    }
+    /// The right column (T2/T3): vital signs, the Law III gates, the current theory, and the
+    /// activity ticker. Ink section labels on beige; the content sits on dark screens.
+    fn right_column(&mut self, ui: &mut egui::Ui) {
+        Self::rail_label(ui, "VITAL SIGNS · LAST 10 MIN");
+        metabolism_box(ui, &self.snapshot.ticks, now_secs());
+
+        ui.add_space(12.0);
+        Self::rail_label(ui, "CAPABILITY · LAW III — YOUR GATES");
+        theme::instrument_screen().show(ui, |ui| {
+            theme::on_screen(ui);
+            self.boundary_panel(ui);
+        });
+
+        ui.add_space(12.0);
+        Self::rail_label(ui, "CURRENT THEORY");
+        let theory = self
+            .snapshot
+            .threads
+            .iter()
+            .rev()
+            .find(|t| !t.theory.is_empty())
+            .map(|t| t.theory.clone());
+        theme::instrument_screen().show(ui, |ui| {
+            theme::on_screen(ui);
+            match theory {
+                Some(t) => ui.label(
+                    egui::RichText::new(format!("💭 {t}"))
+                        .font(theme::serif_italic(14.0))
+                        .color(theme::SCREEN_TEXT),
+                ),
+                None => ui.label(
+                    egui::RichText::new("(no theory yet — it forms as it interprets)")
+                        .font(theme::mono(9.5))
+                        .color(theme::SCREEN_FAINT),
+                ),
+            };
+        });
+
+        ui.add_space(12.0);
+        Self::rail_label(ui, "ACTIVITY · TICKER");
+        theme::instrument_screen().show(ui, |ui| {
+            theme::on_screen(ui);
+            activity_feed(ui, &self.snapshot.ticks, now_secs(), &mut self.active_scroll);
+        });
+    }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
     /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
@@ -1252,27 +1449,6 @@ impl Glass {
     }
 }
 
-/// A coloured 0..1 meter for a law-signal.
-fn signal_meter(ui: &mut egui::Ui, label: &str, sub: &str, value: f64, good_high: bool) {
-    let v = value.clamp(0.0, 1.0) as f32;
-    // green when healthy, amber/red when not (direction depends on the signal)
-    let health = if good_high { v } else { 1.0 - v };
-    let color = egui::Color32::from_rgb((255.0 * (1.0 - health)) as u8, (200.0 * health) as u8, 60);
-    ui.group(|ui| {
-        ui.set_min_width(220.0);
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new(label).strong());
-            ui.label(egui::RichText::new(sub).weak().small());
-            ui.add(
-                egui::ProgressBar::new(v)
-                    .desired_width(200.0)
-                    .fill(color)
-                    .text(format!("{value:.2}")),
-            );
-        });
-    });
-}
-
 impl eframe::App for Glass {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Apply the human's chosen text-zoom (on top of the display's native scale).
@@ -1297,88 +1473,162 @@ impl eframe::App for Glass {
             self.refresh();
             self.last_refresh = std::time::Instant::now();
         }
-        egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.heading("The Familiar — the Glass");
-            ui.label(
-                egui::RichText::new(
-                    "Your familiar — its survival defined by its service to you, and through you to humanity.",
-                )
-                .italics()
-                .weak(),
-            );
-            ui.horizontal(|ui| {
-                if ui.button("⟳ Refresh").clicked() {
-                    self.refresh();
-                    self.refresh_daemon();
-                }
-                ui.separator();
-                ui.label("metabolism:");
-                if ui.button("▶ Start").clicked() {
-                    self.daemon_status = daemon_cmd(&self.data_dir, "start");
-                }
-                if ui.button("■ Stop").clicked() {
-                    self.daemon_status = daemon_cmd(&self.data_dir, "stop");
-                }
-                if ui.button("↻ Reload").clicked() {
-                    self.daemon_status = daemon_cmd(&self.data_dir, "reload");
-                }
-                if ui.button("⏻ Start at login").clicked() {
-                    self.daemon_status = daemon_cmd(&self.data_dir, "install");
-                }
-                ui.separator();
-                // Text size — for tired eyes. Scales the whole window; saved across restarts.
-                ui.label("text:");
-                if ui.button("A−").clicked() {
-                    self.ui_scale = (self.ui_scale - 0.1).clamp(0.8, 2.4);
-                    write_ui_scale(&self.data_dir, self.ui_scale);
-                }
-                if ui.button("A+").clicked() {
-                    self.ui_scale = (self.ui_scale + 0.1).clamp(0.8, 2.4);
-                    write_ui_scale(&self.data_dir, self.ui_scale);
-                }
-                ui.weak(format!("{:.0}%", self.ui_scale * 100.0));
-            });
-            let running = self.daemon_status.contains("running");
-            ui.label(
-                egui::RichText::new(&self.daemon_status)
-                    .small()
-                    .color(if running {
-                        egui::Color32::from_rgb(80, 200, 120)
-                    } else {
-                        egui::Color32::from_rgb(176, 184, 198)
-                    }),
-            );
-            ui.label(
-                egui::RichText::new(format!("data: {}", self.data_dir.display()))
-                    .weak()
-                    .small(),
-            );
-            if let Some(obs) = &self.observer {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "🤝 known to the familiar as {} — names are not forgotten",
-                        obs.name
-                    ))
-                    .small()
-                    .color(egui::Color32::from_rgb(150, 200, 255)),
-                );
-            }
-            ui.add_space(4.0);
-        });
+        let running = self.daemon_status.contains("running");
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // The vital-signs box is pinned to the upper-right — fixed, small, always the
-            // last 10 minutes. It sits outside the scroll so it never moves.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                metabolism_box(ui, &self.snapshot.ticks, now_secs());
+        // ---- titlebar: cockpit chrome ----
+        egui::TopBottomPanel::top("titlebar")
+            .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::symmetric(16, 9)))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("◉ ◉")
+                            .font(theme::mono(11.0))
+                            .color(theme::HAIRLINE),
+                    );
+                    ui.label(
+                        egui::RichText::new("THE GLASS")
+                            .font(theme::mono_semi(13.0))
+                            .color(theme::INK_LABEL),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let dot = if running { theme::GREEN_DEEP } else { theme::RED_DEEP };
+                        ui.label(
+                            egui::RichText::new(if self.daemon_status.is_empty() {
+                                "stopped".to_string()
+                            } else {
+                                self.daemon_status.clone()
+                            })
+                            .font(theme::mono(10.5))
+                            .color(dot),
+                        );
+                        ui.label(egui::RichText::new("●").font(theme::mono(9.0)).color(dot));
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new("Local · No network")
+                                .font(theme::mono(10.0))
+                                .color(theme::INK_LABEL),
+                        );
+                        ui.add_space(6.0);
+                        if ui
+                            .button(egui::RichText::new("A+").font(theme::mono(12.0)))
+                            .clicked()
+                        {
+                            self.ui_scale = (self.ui_scale + 0.1).clamp(0.8, 2.4);
+                            write_ui_scale(&self.data_dir, self.ui_scale);
+                        }
+                        if ui
+                            .button(egui::RichText::new("A−").font(theme::mono(12.0)))
+                            .clicked()
+                        {
+                            self.ui_scale = (self.ui_scale - 0.1).clamp(0.8, 2.4);
+                            write_ui_scale(&self.data_dir, self.ui_scale);
+                        }
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}%", self.ui_scale * 100.0))
+                                .font(theme::mono(9.0))
+                                .color(theme::INK_MUTED),
+                        );
+                    });
+                });
             });
-            // The Glass holds more than fits a window — the channel, the ask, activity,
-            // theories, the laws, loops, and every observation. The whole panel scrolls so
-            // the human can reach all of it, not just what lands above the fold.
+
+        // ---- identity strip (once the familiar knows who it serves) ----
+        if let Some(name) = self.observer.as_ref().map(|o| o.name.clone()) {
+            egui::TopBottomPanel::top("identity")
+                .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::symmetric(18, 6)))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("●")
+                                .font(theme::mono(8.0))
+                                .color(theme::GREEN_DEEP),
+                        );
+                        ui.label(
+                            egui::RichText::new("known to the familiar as")
+                                .font(theme::mono(10.5))
+                                .color(theme::INK_LABEL),
+                        );
+                        ui.label(
+                            egui::RichText::new(&name)
+                                .font(theme::serif_italic(14.0))
+                                .color(theme::INK_HEAD),
+                        );
+                        ui.label(
+                            egui::RichText::new("— names are not forgotten")
+                                .font(theme::mono(9.5))
+                                .color(theme::INK_MUTED),
+                        );
+                    });
+                });
+        }
+
+        // ---- footer: disclosures, calm by default ----
+        egui::TopBottomPanel::bottom("footer")
+            .frame(theme::panel(theme::RAIL_DARK).inner_margin(egui::Margin::symmetric(16, 7)))
+            .show(ctx, |ui| {
+                let lbl = |on: bool, s: &str| {
+                    egui::RichText::new(s).font(theme::mono(10.0)).color(if on {
+                        theme::INK_HEAD
+                    } else {
+                        theme::INK_LABEL
+                    })
+                };
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(
+                            egui::Button::new(lbl(self.show_substrate, "▸ INSPECT SUBSTRATE"))
+                                .frame(false)
+                                .fill(egui::Color32::TRANSPARENT),
+                        )
+                        .clicked()
+                    {
+                        self.show_substrate = !self.show_substrate;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(lbl(self.show_settings, "⚙ PARAMETERS"))
+                                    .frame(false)
+                                    .fill(egui::Color32::TRANSPARENT),
+                            )
+                            .clicked()
+                        {
+                            self.show_settings = !self.show_settings;
+                        }
+                    });
+                });
+            });
+
+        // ---- left rail (T2) ----
+        egui::SidePanel::left("rail")
+            .resizable(false)
+            .exact_width(218.0)
+            .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::same(14)))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("rail-scroll")
+                    .show(ui, |ui| self.laws_rail(ui, running));
+            });
+
+        // ---- right column (T2/T3) ----
+        egui::SidePanel::right("rightcol")
+            .resizable(false)
+            .exact_width(334.0)
+            .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::same(14)))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("rightcol-scroll")
+                    .show(ui, |ui| self.right_column(ui));
+            });
+
+        // ---- center (T1): the conversation, on the main dark screen ----
+        egui::CentralPanel::default()
+            .frame(theme::panel(theme::NAVY).inner_margin(egui::Margin::same(16)))
+            .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+            theme::on_screen(ui); // the center is a dark screen — text is bright on it
             if let Some(err) = &self.snapshot.error {
-                ui.colored_label(egui::Color32::RED, err);
+                ui.colored_label(theme::RED, err);
             }
 
             // --- first run: connect the familiar to a mind (collapses once connected) ---
@@ -1441,17 +1691,6 @@ impl eframe::App for Glass {
                 });
             }
 
-            if let Some(t) = self.snapshot.threads.last() {
-                if !t.theory.is_empty() {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(format!("💭 the familiar is thinking: {}", t.theory))
-                            .italics()
-                            .color(egui::Color32::from_rgb(180, 180, 140)),
-                    );
-                }
-            }
-
             // --- ask the familiar: a free-form request, answered with everything it has ---
             ui.add_space(6.0);
             let pending_requests = self
@@ -1497,167 +1736,90 @@ impl eframe::App for Glass {
             ui.add_space(6.0);
             self.conversation_panel(ui);
 
-            // --- the metabolism at work: the self-pacing meter + a feed of recent actions
-            //     (the vital-signs chart lives in the fixed box, upper-right) ---
-            ui.add_space(6.0);
-            egui::CollapsingHeader::new(
-                egui::RichText::new("📈 Activity — the metabolism at work").strong(),
-            )
-            .default_open(true)
-            .show(ui, |ui| {
-                self.budget_meter(ui);
-                ui.add_space(4.0);
-                if ui
-                    .button("🧪 Open Workshop — watch it theorize, test, and learn")
-                    .clicked()
-                {
-                    self.workshop_open = true;
+            // The Workshop opens in its own popout window (the brief's window into the work).
+            ui.add_space(8.0);
+            if ui
+                .button("🧪 Open Workshop — watch it theorize, test, and learn")
+                .clicked()
+            {
+                self.workshop_open = true;
+            }
+
+            // T5 — the raw substrate, closed by default (toggled from the footer).
+            if self.show_substrate {
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(format!("TOOLS · skills it reuses ({})", self.snapshot.tools.len()))
+                        .font(theme::mono_semi(11.0))
+                        .color(theme::SCREEN_DIM),
+                );
+                tools_panel(ui, &self.snapshot.tools, &mut self.active_scroll);
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("THEORIES & THREADS")
+                        .font(theme::mono_semi(11.0))
+                        .color(theme::SCREEN_DIM),
+                );
+                threads_panel(ui, &self.snapshot.threads, &mut self.active_scroll);
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "LOOPS ({}) · CANDIDATES ({})",
+                        self.snapshot.loops.len(),
+                        self.snapshot.candidates.len()
+                    ))
+                    .font(theme::mono_semi(11.0))
+                    .color(theme::SCREEN_DIM),
+                );
+                if self.snapshot.loops.is_empty() {
+                    ui.weak("(no loops yet — recurring observations form loops)");
                 }
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new("recent actions").weak().small());
-                activity_feed(ui, &self.snapshot.ticks, now_secs(), &mut self.active_scroll);
-            });
+                for lp in &self.snapshot.loops {
+                    let n = self
+                        .snapshot
+                        .candidates
+                        .iter()
+                        .filter(|c| c.loop_id == lp.id)
+                        .count();
+                    ui.label(format!(
+                        "↻ {}  (x{}, conf {:.2}) — {n} candidate(s)",
+                        lp.name, lp.observation_count, lp.confidence
+                    ));
+                }
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("OBSERVATIONS · the only truth")
+                        .font(theme::mono_semi(11.0))
+                        .color(theme::SCREEN_DIM),
+                );
+                if self.snapshot.observations.is_empty() {
+                    ui.weak("(no observations yet)");
+                }
+                egui::Grid::new("obs")
+                    .striped(true)
+                    .num_columns(4)
+                    .show(ui, |ui| {
+                        for o in &self.snapshot.observations {
+                            let served = service::is_served_facing(o);
+                            ui.colored_label(
+                                if served { theme::GREEN } else { theme::SCREEN_FAINT },
+                                if served { "•" } else { " " },
+                            );
+                            ui.label(&o.id);
+                            ui.label(format!("{} {} {}", o.actor, o.action, o.object));
+                            ui.weak(&o.context);
+                            ui.end_row();
+                        }
+                    });
+            }
 
-            egui::CollapsingHeader::new(egui::RichText::new("🧵 Theories & threads").strong())
-                .default_open(false)
-                .show(ui, |ui| {
-                    threads_panel(ui, &self.snapshot.threads, &mut self.active_scroll)
-                });
-
-            egui::CollapsingHeader::new(
-                egui::RichText::new(format!(
-                    "🛠 Tools — skills the familiar reuses ({})",
-                    self.snapshot.tools.len()
-                ))
-                .strong(),
-            )
-            .default_open(false)
-            .show(ui, |ui| {
-                tools_panel(ui, &self.snapshot.tools, &mut self.active_scroll)
-            });
-
-            egui::CollapsingHeader::new(
-                egui::RichText::new("⛔ Law III — the boundary (your gates)").strong(),
-            )
-            .default_open(false)
-            .show(ui, |ui| self.boundary_panel(ui));
-
-            egui::CollapsingHeader::new(
-                egui::RichText::new("⚙ Settings — shared parameters").strong(),
-            )
-            .default_open(false)
-            .show(ui, |ui| {
+            // T4 — shared parameters, behind the footer toggle.
+            if self.show_settings {
+                ui.add_space(10.0);
                 if settings_panel(ui, &mut self.params_edit, &self.data_dir) {
                     self.snapshot = Snapshot::load(&self.data_dir);
                 }
-            });
-
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("The Three Laws, measured").strong());
-            ui.horizontal_wrapped(|ui| {
-                let s = &self.snapshot.service;
-                signal_meter(
-                    ui,
-                    "Law I — Service",
-                    &format!("{} of {} obs serve", s.served_facing, s.total),
-                    s.measure,
-                    true,
-                );
-                let p = &self.snapshot.presence;
-                signal_meter(
-                    ui,
-                    "Law II — Presence",
-                    if p.withdrawn {
-                        "withdrawn — empty world"
-                    } else {
-                        "the served are present"
-                    },
-                    p.measure,
-                    true,
-                );
-                boundary_card(ui, &self.snapshot.boundary);
-            });
-
-            if self.snapshot.presence.withdrawn {
-                ui.colored_label(
-                    egui::Color32::from_rgb(220, 120, 40),
-                    "⚠ Law II: the served have withdrawn — an empty world is not success.",
-                );
             }
-            if self.snapshot.service.served_facing == 0 {
-                ui.colored_label(
-                    egui::Color32::from_rgb(220, 120, 40),
-                    "⚠ Law I: no served-facing activity — continuation unjustified by service.",
-                );
-            }
-            if !self.snapshot.flagged.is_empty() {
-                let who = self
-                    .snapshot
-                    .flagged
-                    .iter()
-                    .map(|(a, n)| format!("{a} ({n})"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 80, 80),
-                    format!(
-                        "⛔ Law III: corruption watch — {who} repeatedly tried to break the \
-                         constitution; their directives are marginalized so legitimate work proceeds.",
-                    ),
-                );
-            }
-
-            ui.separator();
-            ui.label(
-                egui::RichText::new(format!(
-                    "Loops ({}) and candidates ({}) — the metabolism's output",
-                    self.snapshot.loops.len(),
-                    self.snapshot.candidates.len()
-                ))
-                .strong(),
-            );
-            if self.snapshot.loops.is_empty() {
-                ui.weak("(no loops yet — recurring observations form loops)");
-            }
-            for lp in &self.snapshot.loops {
-                let n_cands = self
-                    .snapshot
-                    .candidates
-                    .iter()
-                    .filter(|c| c.loop_id == lp.id)
-                    .count();
-                ui.label(format!(
-                    "↻ {}  (x{}, conf {:.2}) — {} candidate(s)",
-                    lp.name, lp.observation_count, lp.confidence, n_cands
-                ));
-            }
-
-            ui.separator();
-            ui.label(egui::RichText::new("Observations (the only truth)").strong());
-            if self.snapshot.observations.is_empty() {
-                ui.weak("(no observations yet)");
-            }
-            egui::Grid::new("obs")
-                .striped(true)
-                .num_columns(4)
-                .show(ui, |ui| {
-                    for o in &self.snapshot.observations {
-                        let served = service::is_served_facing(o);
-                        let mark = if served { "•" } else { " " };
-                        ui.colored_label(
-                            if served {
-                                egui::Color32::from_rgb(80, 200, 120)
-                            } else {
-                                egui::Color32::from_rgb(176, 184, 198)
-                            },
-                            mark,
-                        );
-                        ui.label(&o.id);
-                        ui.label(format!("{} {} {}", o.actor, o.action, o.object));
-                        ui.weak(&o.context);
-                        ui.end_row();
-                    }
-                });
             }); // end ScrollArea
         });
 
@@ -2018,77 +2180,6 @@ fn confidence_badge(ui: &mut egui::Ui, c: Confidence) {
         Confidence::Unknown => ("○ unknown", egui::Color32::from_rgb(176, 184, 198)),
     };
     ui.colored_label(col, egui::RichText::new(txt).strong());
-}
-
-fn boundary_card(ui: &mut egui::Ui, b: &Boundary) {
-    ui.group(|ui| {
-        ui.set_min_width(220.0);
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new("Law III — Boundary").strong());
-            if b.is_closed() {
-                ui.colored_label(
-                    egui::Color32::from_rgb(80, 200, 120),
-                    "CLOSED — no outward reach",
-                );
-                ui.label(
-                    egui::RichText::new("the human's lever; the familiar can't widen it")
-                        .weak()
-                        .small(),
-                );
-            } else {
-                ui.label(egui::RichText::new(format!("phase: {}", b.phase)).small());
-                ui.label(
-                    egui::RichText::new(format!(
-                        "net {} · llm {} · install {}",
-                        onoff(b.allow_network),
-                        onoff(b.allow_llm),
-                        onoff(b.allow_tool_install)
-                    ))
-                    .small(),
-                );
-                ui.label(
-                    egui::RichText::new(format!(
-                        "execute {} · authored {}",
-                        onoff(b.allow_execute),
-                        onoff(b.allow_authored_execute)
-                    ))
-                    .small(),
-                );
-                if b.allow_execute || b.allow_authored_execute {
-                    if b.sandbox_execution {
-                        ui.label(egui::RichText::new("sandbox on").small());
-                    } else {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 150, 60),
-                            egui::RichText::new(
-                                "sandbox OFF — bound by the pre-execution review, not a jail",
-                            )
-                            .small(),
-                        );
-                    }
-                }
-                if b.allow_camera {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(150, 200, 255),
-                        egui::RichText::new("👁 camera: the eye may watch (granted)").small(),
-                    );
-                } else {
-                    ui.label(
-                        egui::RichText::new("👁 camera: closed (discovery only, no watching)")
-                            .small(),
-                    );
-                }
-            }
-        });
-    });
-}
-
-fn onoff(b: bool) -> &'static str {
-    if b {
-        "on"
-    } else {
-        "off"
-    }
 }
 
 fn data_dir_from_args() -> PathBuf {

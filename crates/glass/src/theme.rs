@@ -234,6 +234,13 @@ pub fn panel(fill: Color32) -> Frame {
         .stroke(Stroke::new(1.0, HAIRLINE_LIGHT))
 }
 
+/// Flip a `ui` scope to bright text — call at the top of any content drawn on a navy
+/// instrument screen, so the global ink (for the beige chassis) never lands dark-on-dark.
+/// Explicit `.color(...)` still overrides this default.
+pub fn on_screen(ui: &mut egui::Ui) {
+    ui.visuals_mut().override_text_color = Some(SCREEN_TEXT);
+}
+
 /// A vertical segmented meter on navy: `value` in 0..1 lights segments bottom-up in
 /// `lit`. Draws into the given rect (a recessed well). Used by the Three-Laws meters.
 pub fn segmented_meter(ui: &egui::Ui, rect: egui::Rect, value: f64, lit: Color32) {
