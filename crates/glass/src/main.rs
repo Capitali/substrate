@@ -750,6 +750,73 @@ impl Glass {
                 }
             });
     }
+    /// The Law III control: six toggles for the human-owned capability gates (plus the
+    /// resource-sandbox choice). Flipping one writes boundary.json — a human act, performed
+    /// through the human's instrument. The kernel itself never writes the boundary, so this
+    /// is the *only* way a gate opens or closes; the familiar can read it but never widen it.
+    fn boundary_panel(&mut self, ui: &mut egui::Ui) {
+        let mut b = self.snapshot.boundary.clone();
+        let mut changed = false;
+        ui.label(
+            egui::RichText::new(
+                "These gates are yours alone. The familiar reads them and obeys them; it can \
+                 never widen them — only you can. Each is outward reach it won't take unless \
+                 you allow it.",
+            )
+            .weak(),
+        );
+        ui.add_space(2.0);
+        changed |= ui
+            .checkbox(&mut b.allow_network, "Network — use the network at all")
+            .changed();
+        changed |= ui
+            .checkbox(&mut b.allow_llm, "LLM — consult a model (its mind)")
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut b.allow_tool_install,
+                "Tool install — download / install tools",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(&mut b.allow_execute, "Execute — run code it generated")
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut b.allow_authored_execute,
+                "Authored execute — run LLM-written code (sharper reach)",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut b.allow_camera,
+                "Camera — watch through a camera (sharpest reach — Law III)",
+            )
+            .changed();
+        ui.separator();
+        changed |= ui
+            .checkbox(
+                &mut b.sandbox_execution,
+                "Sandbox executed code (resource jail; off = bound by the review only)",
+            )
+            .changed();
+
+        if changed {
+            // Keep the phase label honest with the gates, then persist. Writing the boundary
+            // is the human's act — never the factory's.
+            b.phase = if b.is_closed() {
+                "closed".to_string()
+            } else if b.phase == "closed" || b.phase.is_empty() {
+                "phase-1".to_string()
+            } else {
+                b.phase.clone()
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&b) {
+                let _ = std::fs::write(self.data_dir.join("boundary.json"), json);
+                self.refresh();
+            }
+        }
+    }
     /// The conversation transcript — every ask paired with the familiar's answer, newest
     /// first. This is the durable place an answer lands in text; 🔊 speaks it aloud, and
     /// 👍 / ✍ feed back (refine prefills the ask so the answer can be sharpened).
@@ -1186,6 +1253,12 @@ impl eframe::App for Glass {
             .show(ui, |ui| {
                 tools_panel(ui, &self.snapshot.tools, &mut self.active_scroll)
             });
+
+            egui::CollapsingHeader::new(
+                egui::RichText::new("⛔ Law III — the boundary (your gates)").strong(),
+            )
+            .default_open(false)
+            .show(ui, |ui| self.boundary_panel(ui));
 
             egui::CollapsingHeader::new(
                 egui::RichText::new("⚙ Settings — shared parameters").strong(),
