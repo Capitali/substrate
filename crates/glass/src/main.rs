@@ -983,6 +983,7 @@ impl Glass {
     /// drawn — at the chosen depth. Brief = terse one-liners; verbose = the full detail the
     /// metabolism already records (hypothesis, lineage, score breakdown, failure, mutation).
     fn workshop_ui(&mut self, ui: &mut egui::Ui) {
+        theme::on_screen(ui); // dark screen — text is bright on navy, never dark-on-dark
         let blue = egui::Color32::from_rgb(150, 200, 255);
         let green = egui::Color32::from_rgb(150, 205, 150);
         let amber = egui::Color32::from_rgb(220, 150, 70);
@@ -1666,9 +1667,13 @@ impl eframe::App for Glass {
             });
 
         // ---- left rail (T2) ----
+        // Resizable: drag its right edge to set the rail's width. The center column takes
+        // whatever is left between the two rails, so its right edge is always the right
+        // column's left edge — never the window edge.
         egui::SidePanel::left("rail")
-            .resizable(false)
-            .exact_width(218.0)
+            .resizable(true)
+            .default_width(218.0)
+            .width_range(160.0..=380.0)
             .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
@@ -1677,9 +1682,11 @@ impl eframe::App for Glass {
             });
 
         // ---- right column (T2/T3) ----
+        // Resizable: drag its left edge (the boundary with the center) to set its width.
         egui::SidePanel::right("rightcol")
-            .resizable(false)
-            .exact_width(334.0)
+            .resizable(true)
+            .default_width(334.0)
+            .width_range(240.0..=520.0)
             .frame(theme::panel(theme::RAIL_LIGHT).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
@@ -1905,7 +1912,12 @@ impl eframe::App for Glass {
                     .with_title("The Familiar — Workshop")
                     .with_inner_size([580.0, 760.0]),
                 |ctx, _class| {
-                    egui::CentralPanel::default().show(ctx, |ui| self.workshop_ui(ui));
+                    // The Workshop is a dark instrument screen (its labels are the bright
+                    // navy-screen colours), so frame it navy — never the beige chassis, which
+                    // would put bright text on a light field.
+                    egui::CentralPanel::default()
+                        .frame(theme::panel(theme::NAVY).inner_margin(egui::Margin::same(16)))
+                        .show(ctx, |ui| self.workshop_ui(ui));
                     if ctx.input(|i| i.viewport().close_requested()) {
                         close = true;
                     }
