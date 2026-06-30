@@ -25,22 +25,39 @@ chmod +x "$ROOT/packaging/scripts/postinstall"
 
 # Notarize + staple the app *before* packaging, so it launches even if the recipient is
 # offline the first time (the pkg is notarized too, below, for the install step itself).
+# Skip if it's already stapled (re-runs / iterating on the pkg only).
 if [[ -n "$NOTARY_PROFILE" ]]; then
-  echo "==> notarizing the app (offline first-launch) — waits for Apple"
-  APPZIP="$ROOT/dist/Familiar-app.zip"
-  /usr/bin/ditto -c -k --keepParent "$APP" "$APPZIP"
-  xcrun notarytool submit "$APPZIP" --keychain-profile "$NOTARY_PROFILE" --wait
-  rm -f "$APPZIP"
-  xcrun stapler staple "$APP"
+  if xcrun stapler validate "$APP" >/dev/null 2>&1; then
+    echo "==> app already notarized + stapled — skipping app notarization"
+  else
+    echo "==> notarizing the app (offline first-launch) — waits for Apple"
+    APPZIP="$ROOT/dist/Familiar-app.zip"
+    /usr/bin/ditto -c -k --keepParent "$APP" "$APPZIP"
+    xcrun notarytool submit "$APPZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+    rm -f "$APPZIP"
+    xcrun stapler staple "$APP"
+  fi
 fi
 
-echo "==> pkgbuild (component, with postinstall)"
-pkgbuild --component "$APP" \
-  --install-location /Applications \
+# Build from a staging root with a component plist that marks the bundle NON-relocatable.
+# Otherwise the macOS Installer, on finding any existing copy of the same bundle id (e.g. a
+# dev build under dist/), "relocates" the install onto that copy and leaves /Applications
+# empty — which then breaks the launchd agents that point at /Applications/Familiar.app.
+echo "==> pkgbuild (non-relocatable, with postinstall)"
+STAGE="$ROOT/dist/stage"
+CPLIST="$ROOT/dist/component.plist"
+rm -rf "$STAGE"; mkdir -p "$STAGE/Applications"
+/usr/bin/ditto "$APP" "$STAGE/Applications/Familiar.app"
+pkgbuild --analyze --root "$STAGE" "$CPLIST"
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$CPLIST"
+pkgbuild --root "$STAGE" \
+  --component-plist "$CPLIST" \
+  --install-location / \
   --scripts "$ROOT/packaging/scripts" \
   --identifier "$PKG_ID" \
   --version "$VERSION" \
   "$COMPONENT"
+rm -rf "$STAGE" "$CPLIST"
 
 echo "==> productbuild (product archive)"
 PB_ARGS=(--package "$COMPONENT" --identifier "$PKG_ID" --version "$VERSION")
